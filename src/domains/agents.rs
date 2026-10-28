@@ -276,6 +276,18 @@ pub struct UpsertAgentEndpointData {
     pub answer_mode: Option<String>,
 }
 
+/// Data used to pause an agent on one conversation (its number + one contact).
+/// Field names are snake_case in Rust but serialize to the camelCase keys the API expects.
+/// The default value serializes to `{}`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseAgentConversationData {
+    /// Why the conversation is paused: `"human_reply"` (a person replied by hand) or
+    /// `"manual"` (the default). `None` omits the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// Data used to approve a held agent reply (a reply draft).
 /// Field names are snake_case in Rust but serialize to the camelCase keys the API expects.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1108,6 +1120,115 @@ impl AgentsDomain {
         self.http
             .request_json(
                 &format!("/agent/endpoints/{}/{}", safe_channel, safe_endpoint_value),
+                Method::DELETE,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// List paused agent conversations in a group, newest first. A paused conversation is one
+    /// a person took over; the agent stays out of it until it is resumed. Each pause carries
+    /// `groupId`, `subgroupId`, `channel`, `endpointValue`, `contactIdentifier`, `reason`
+    /// (`"human_reply"`, `"escalation"` or `"manual"`), `pausedBy`, `createdAt`, and `updatedAt`.
+    ///
+    /// **Roles:** api, admin, developer, billing, user.
+    ///
+    /// **GET** `/agent/pauses?...`
+    /// `subgroup_id`, `channel` (`"sms"`), `endpoint_value` (the agent's number) and
+    /// `contact_identifier` (the contact's number), digits only with no `+`, narrow the list.
+    pub async fn get_agent_contact_pauses(
+        &self,
+        group_id: &str,
+        subgroup_id: Option<&str>,
+        channel: Option<&str>,
+        endpoint_value: Option<&str>,
+        contact_identifier: Option<&str>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", Some(group_id.to_string())),
+            ("subgroupId", subgroup_id.map(|s| s.to_string())),
+            ("channel", channel.map(|s| s.to_string())),
+            ("endpointValue", endpoint_value.map(|s| s.to_string())),
+            (
+                "contactIdentifier",
+                contact_identifier.map(|s| s.to_string()),
+            ),
+        ]);
+        self.http
+            .request_json(&format!("/agent/pauses{}", qs), Method::GET, None, options)
+            .await
+    }
+
+    /// Pause an agent on one conversation (its number + one contact). The agent stops
+    /// answering that contact on that number until the conversation is resumed; there is no
+    /// timer. The conversation's pending replies are rejected. Pausing a paused conversation
+    /// keeps the original pause. `channel` must be `"sms"`; `endpoint_value` and
+    /// `contact_identifier` are 10 to 15 digits, country code included, no `+` (see
+    /// [`PauseAgentConversationData`]). Returns the pause.
+    ///
+    /// **Roles:** api, admin, developer, billing, user.
+    ///
+    /// **PUT** `/agent/pauses/:channel/:endpointValue/:contactIdentifier`
+    pub async fn pause_agent_conversation(
+        &self,
+        channel: &str,
+        endpoint_value: &str,
+        contact_identifier: &str,
+        pause_data: &PauseAgentConversationData,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("channel", Some(channel)),
+            ("endpointValue", Some(endpoint_value)),
+            ("contactIdentifier", Some(contact_identifier)),
+        ])?;
+        let safe_channel = urlencoding::encode(channel);
+        let safe_endpoint_value = urlencoding::encode(endpoint_value);
+        let safe_contact_identifier = urlencoding::encode(contact_identifier);
+        let body = serde_json::to_value(pause_data)?;
+        self.http
+            .request_json(
+                &format!(
+                    "/agent/pauses/{}/{}/{}",
+                    safe_channel, safe_endpoint_value, safe_contact_identifier
+                ),
+                Method::PUT,
+                Some(&body),
+                options,
+            )
+            .await
+    }
+
+    /// Resume an agent on a paused conversation, so it answers the contact's next text again.
+    /// Returns the removed pause.
+    ///
+    /// **Roles:** api, admin, developer, billing, user.
+    ///
+    /// **DELETE** `/agent/pauses/:channel/:endpointValue/:contactIdentifier`
+    pub async fn resume_agent_conversation(
+        &self,
+        channel: &str,
+        endpoint_value: &str,
+        contact_identifier: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("channel", Some(channel)),
+            ("endpointValue", Some(endpoint_value)),
+            ("contactIdentifier", Some(contact_identifier)),
+        ])?;
+        let safe_channel = urlencoding::encode(channel);
+        let safe_endpoint_value = urlencoding::encode(endpoint_value);
+        let safe_contact_identifier = urlencoding::encode(contact_identifier);
+        self.http
+            .request_json(
+                &format!(
+                    "/agent/pauses/{}/{}/{}",
+                    safe_channel, safe_endpoint_value, safe_contact_identifier
+                ),
                 Method::DELETE,
                 None,
                 options,

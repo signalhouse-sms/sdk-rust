@@ -823,11 +823,11 @@ async fn staff_set_toll_free_provider_contract() {
 }
 
 #[tokio::test]
-async fn business_verification_read_and_submit_contracts() {
+async fn business_verification_list_read_create_and_update_contracts() {
     let (client, request) = capture_server();
     client
         .brands
-        .get_business_verification("G 1", None)
+        .get_business_verifications("G 1", None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
@@ -847,11 +847,31 @@ async fn business_verification_read_and_submit_contracts() {
     });
     client
         .brands
-        .submit_business_verification("G 1", &details, None)
+        .create_business_verification("G 1", &details, None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
-    assert!(wire.starts_with("PUT /brand/business-verification/G%201 "));
+    assert!(wire.starts_with("POST /brand/business-verification/G%201 "));
+    assert_eq!(body(&wire), details);
+
+    let (client, request) = capture_server();
+    client
+        .brands
+        .get_business_verification("G 1", "BV 1", None)
+        .await
+        .unwrap();
+    let wire = request.join().unwrap();
+    assert!(wire.starts_with("GET /brand/business-verification/G%201/BV%201 "));
+    assert_eq!(wire.split("\r\n\r\n").nth(1).unwrap_or(""), "");
+
+    let (client, request) = capture_server();
+    client
+        .brands
+        .update_business_verification("G 1", "BV 1", &details, None)
+        .await
+        .unwrap();
+    let wire = request.join().unwrap();
+    assert!(wire.starts_with("PUT /brand/business-verification/G%201/BV%201 "));
     assert_eq!(body(&wire), details);
 
     let client = SignalHouseClient::new(SignalHouseConfig {
@@ -860,16 +880,38 @@ async fn business_verification_read_and_submit_contracts() {
     })
     .unwrap();
     assert!(matches!(
-        client.brands.get_business_verification("", None).await,
+        client.brands.get_business_verifications("", None).await,
         Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
     ));
     assert!(matches!(
         client
             .brands
-            .submit_business_verification("", &details, None)
+            .create_business_verification("", &details, None)
             .await,
         Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
     ));
+    for (group_id, id, missing) in [
+        ("", "BV1", "groupId"),
+        ("G0000001", "", "businessVerificationId"),
+    ] {
+        assert!(
+            matches!(
+                client.brands.get_business_verification(group_id, id, None).await,
+                Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == missing
+            ),
+            "get_business_verification without {missing}"
+        );
+        assert!(
+            matches!(
+                client
+                    .brands
+                    .update_business_verification(group_id, id, &details, None)
+                    .await,
+                Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == missing
+            ),
+            "update_business_verification without {missing}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -877,7 +919,7 @@ async fn business_verification_for_subgroup_sends_subgroup_id_only_when_given() 
     let (client, request) = capture_server();
     client
         .brands
-        .get_business_verification_for_subgroup("G 1", Some("S 1"), None)
+        .get_business_verifications_for_subgroup("G 1", Some("S 1"), None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
@@ -887,7 +929,7 @@ async fn business_verification_for_subgroup_sends_subgroup_id_only_when_given() 
     let (client, request) = capture_server();
     client
         .brands
-        .get_business_verification_for_subgroup("G 1", None, None)
+        .get_business_verifications_for_subgroup("G 1", None, None)
         .await
         .unwrap();
     assert!(request
@@ -899,21 +941,21 @@ async fn business_verification_for_subgroup_sends_subgroup_id_only_when_given() 
     let (client, request) = capture_server();
     client
         .brands
-        .submit_business_verification_for_subgroup("G 1", &details, Some("S 1"), None)
+        .create_business_verification_for_subgroup("G 1", &details, Some("S 1"), None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
-    assert!(wire.starts_with("PUT /brand/business-verification/G%201?subgroupId=S%201 "));
+    assert!(wire.starts_with("POST /brand/business-verification/G%201?subgroupId=S%201 "));
     assert_eq!(body(&wire), details);
 
     let (client, request) = capture_server();
     client
         .brands
-        .submit_business_verification_for_subgroup("G 1", &details, None, None)
+        .create_business_verification_for_subgroup("G 1", &details, None, None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
-    assert!(wire.starts_with("PUT /brand/business-verification/G%201 "));
+    assert!(wire.starts_with("POST /brand/business-verification/G%201 "));
     assert_eq!(body(&wire), details);
 
     let client = SignalHouseClient::new(SignalHouseConfig {
@@ -924,14 +966,14 @@ async fn business_verification_for_subgroup_sends_subgroup_id_only_when_given() 
     assert!(matches!(
         client
             .brands
-            .get_business_verification_for_subgroup("", Some("S0000001"), None)
+            .get_business_verifications_for_subgroup("", Some("S0000001"), None)
             .await,
         Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
     ));
     assert!(matches!(
         client
             .brands
-            .submit_business_verification_for_subgroup("", &details, Some("S0000001"), None)
+            .create_business_verification_for_subgroup("", &details, Some("S0000001"), None)
             .await,
         Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
     ));
@@ -950,8 +992,8 @@ async fn staff_toll_free_isv_account_contracts() {
     assert!(wire.starts_with("GET /brand/toll-free-isv-account/G%201 "));
     assert_eq!(wire.split("\r\n\r\n").nth(1).unwrap_or(""), "");
 
-    let account_sid = "AC0123456789abcdef0123456789abcdef";
-    let api_key_sid = "SK0123456789abcdef0123456789abcdef";
+    let account_sid = "AC00000000000000000000000000000000";
+    let api_key_sid = "SK11111111111111111111111111111111";
     let (client, request) = capture_server();
     client
         .brands

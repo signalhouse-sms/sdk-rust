@@ -167,52 +167,79 @@ BRANDS  (client.brands)
   create_brand(brand_data, options) -> Result<SignalHouseResponse>
     Create a new 10DLC brand.
 
-  get_business_verification(group_id, options) -> Result<SignalHouseResponse>
-    Get a group's business verification: whether its toll-free brands need
-    one, its status and the submitted details
-    (GET /brand/business-verification/:groupId).
-    Returns { groupId, required, status, details, submittedAt, reviewedAt,
-    rejectionReason }; status is NOT_STARTED, SUBMITTING, IN_REVIEW, VERIFIED
-    or NEEDS_CHANGES; rejectionReason says why it needs changes, or is null.
+  get_business_verifications(group_id, options) -> Result<SignalHouseResponse>
+    List a group's business verifications, newest first, and whether its
+    toll-free brands need one (GET /brand/business-verification/:groupId).
+    Returns { groupId, required, businessVerifications }. Each business
+    verification has businessVerificationId, groupId, status (SUBMITTING,
+    IN_REVIEW, VERIFIED or NEEDS_CHANGES), details, submittedAt, reviewedAt
+    and rejectionReason (why it needs changes, or null).
     For a group that verifies each subgroup's business separately, use
-    get_business_verification_for_subgroup.
+    get_business_verifications_for_subgroup.
 
-  submit_business_verification(group_id, details,
+  get_business_verifications_for_subgroup(group_id, subgroup_id,
       options) -> Result<SignalHouseResponse>
-    Submit or update a group's business verification
-    (PUT /brand/business-verification/:groupId). Allowed when it is not
-    started or needs changes. Review usually takes 1–2 business days; the
-    group's toll-free brands stay pending until it is verified.
-    details: JSON value (required) with businessName, businessType, industry,
-    registrationType, registrationNumber, website, street, street2
-    (optional), city, state, postalCode, country (US or CA) and
-    representative { firstName, lastName, email, phone, jobTitle, jobLevel }.
-    Returns 202 with the get_business_verification shape (status SUBMITTING).
-    For a group that verifies each subgroup's business separately, use
-    submit_business_verification_for_subgroup.
-
-  get_business_verification_for_subgroup(group_id, subgroup_id,
-      options) -> Result<SignalHouseResponse>
-    Get a business verification, naming the subgroup it is for
+    List business verifications, naming the subgroup they are for
     (GET /brand/business-verification/:groupId?subgroupId=). Some groups
     verify each subgroup's business separately: a platform whose subgroups
     are separate businesses, set up by Signal House. For those groups
     subgroup_id is required (400 without it). subgroup_id: Option<&str>,
     sent as subgroupId only when Some; it must be a subgroup of the group
-    (404 otherwise). Any other group returns its one business verification.
-    Returns the get_business_verification shape, plus subgroupId when the
-    business verification belongs to that one subgroup.
+    (404 otherwise). Any other group's business verifications cover all its
+    subgroups. Returns the get_business_verifications shape, plus subgroupId
+    on the list and on each business verification when they belong to that
+    one subgroup.
 
-  submit_business_verification_for_subgroup(group_id, details, subgroup_id,
+  get_business_verification(group_id, business_verification_id,
       options) -> Result<SignalHouseResponse>
-    Submit or update a business verification, naming the subgroup it is for
-    (PUT /brand/business-verification/:groupId?subgroupId=). subgroup_id is
-    required for a group that verifies each subgroup's business separately
-    (400 without it). It is sent as subgroupId only when Some, and must be an
-    active subgroup of the group (404 when it is not in the group, 400 when
-    it is inactive). Any other group submits its one business verification.
-    details as for submit_business_verification. Returns 202 with the
-    get_business_verification_for_subgroup shape (status SUBMITTING).
+    Get one of a group's business verifications by its ID
+    (GET /brand/business-verification/:groupId/:businessVerificationId).
+    Returns the business verification, as get_business_verifications lists
+    it, plus required. 404 when it isn't one of the group's.
+
+  create_business_verification(group_id, details,
+      options) -> Result<SignalHouseResponse>
+    Create and submit a new business verification
+    (POST /brand/business-verification/:groupId). Review usually takes 1–2
+    business days.
+    details: JSON value (required) with businessName, businessType, industry,
+    registrationType, registrationNumber, website, street, street2
+    (optional), city, state, postalCode, country (US or CA) and
+    representative { firstName, lastName, email, phone, jobTitle, jobLevel }.
+    Once it is VERIFIED, a new toll-free brand uses it by sending its ID as
+    tollFree.businessVerificationId to create_toll_free_brand. The brand's
+    legal fields (companyName, street, city, state, postalCode, country,
+    firstName, lastName and tollFree's businessRegistrationType, taxId,
+    countryCode and taxIdIssuingCountry) are then optional and come from the
+    business verification. A group whose toll-free brands need a business
+    verification must send it; any other group gets 400 if it does. It
+    can't be changed after the brand is created.
+    Returns 202 with the business verification (status SUBMITTING); 400 when
+    the group's toll-free brands don't need a business verification.
+    For a group that verifies each subgroup's business separately, use
+    create_business_verification_for_subgroup.
+
+  create_business_verification_for_subgroup(group_id, details, subgroup_id,
+      options) -> Result<SignalHouseResponse>
+    Create and submit a new business verification, naming the subgroup it is
+    for (POST /brand/business-verification/:groupId?subgroupId=).
+    subgroup_id is required for a group that verifies each subgroup's
+    business separately (400 without it). It is sent as subgroupId only when
+    Some, and must be an active subgroup of the group (404 when it is not in
+    the group, 400 when it is inactive). In any other group the business
+    verification covers all its subgroups. details as for
+    create_business_verification. Returns 202 with the business verification
+    (status SUBMITTING).
+
+  update_business_verification(group_id, business_verification_id, details,
+      options) -> Result<SignalHouseResponse>
+    Correct and resubmit a business verification
+    (PUT /brand/business-verification/:groupId/:businessVerificationId).
+    Allowed only while its status is NEEDS_CHANGES (400 otherwise). Review
+    usually takes 1–2 business days; the toll-free brands that use it stay
+    pending until it is verified. details as for
+    create_business_verification. Returns 202 with the business verification
+    (status SUBMITTING); 404 when it isn't one of the group's.
 
   update_brand(brand_id, brand_data, options) -> Result<SignalHouseResponse>
     Update brand information.

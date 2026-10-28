@@ -29,6 +29,8 @@ impl BrandsDomain {
     /// **GET** `/brand?...`
     ///
     /// `registration_type` optionally filters by `"TEN_DLC"`, `"TOLL_FREE"`, or `"SHORT_CODE"`.
+    ///
+    /// Each brand carries `carrierSuspensions` (carrier brand suspension rules; active while liftedAt is null).
     #[allow(clippy::too_many_arguments)]
     pub async fn get_brands(
         &self,
@@ -127,6 +129,13 @@ impl BrandsDomain {
 
     /// Create a new Toll-Free (TFN) brand.
     ///
+    /// `tollFree.businessVerificationId` names the business verification the brand uses (starts with `BV`). A group
+    /// whose toll-free brands need a business verification must send a `VERIFIED` one of the brand's group (in a
+    /// group that verifies each subgroup's business separately, of the brand's subgroup); any other group gets 400 if
+    /// it sends one. With it, the legal fields (companyName, street, city, state, postalCode, country, firstName,
+    /// lastName and tollFree's businessRegistrationType, taxId, countryCode and taxIdIssuingCountry) are optional:
+    /// the business verification's values replace any that are sent. It can't be changed after creation.
+    ///
     /// **POST** `/brand/toll-free`
     ///
     /// `registrationType` is forced to `TOLL_FREE` server-side; TFN-specific fields live under
@@ -145,33 +154,35 @@ impl BrandsDomain {
             .await
     }
 
-    /// Get a group's business verification: whether its toll-free brands need one, its status and the
-    /// submitted details.
+    /// List a group's business verifications, newest first, and whether its toll-free brands need one.
     ///
     /// **GET** `/brand/business-verification/:groupId`
     ///
-    /// `status` is `NOT_STARTED`, `SUBMITTING`, `IN_REVIEW`, `VERIFIED` or `NEEDS_CHANGES`. For a group that
-    /// verifies each subgroup's business separately, use
-    /// [`get_business_verification_for_subgroup`](Self::get_business_verification_for_subgroup).
-    pub async fn get_business_verification(
+    /// Returns `{ groupId, required, businessVerifications }`. Each business verification has
+    /// `businessVerificationId`, `groupId`, `status` (`SUBMITTING`, `IN_REVIEW`, `VERIFIED` or `NEEDS_CHANGES`),
+    /// `details`, `submittedAt`, `reviewedAt` and `rejectionReason`. For a group that verifies each subgroup's
+    /// business separately, use
+    /// [`get_business_verifications_for_subgroup`](Self::get_business_verifications_for_subgroup).
+    pub async fn get_business_verifications(
         &self,
         group_id: &str,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        self.get_business_verification_for_subgroup(group_id, None, options)
+        self.get_business_verifications_for_subgroup(group_id, None, options)
             .await
     }
 
-    /// Get a business verification, naming the subgroup it is for.
+    /// List business verifications, naming the subgroup they are for.
     ///
     /// **GET** `/brand/business-verification/:groupId?subgroupId=...`
     ///
     /// Some groups verify each subgroup's business separately: a platform whose subgroups are separate businesses,
     /// set up by Signal House. For those groups `subgroup_id` is required (400 without it). It is sent as
-    /// `subgroupId` only when `Some`, and must be a subgroup of the group (404 otherwise); any other group returns
-    /// its one business verification. Returns the [`get_business_verification`](Self::get_business_verification)
-    /// shape, plus `subgroupId` when the business verification belongs to that one subgroup.
-    pub async fn get_business_verification_for_subgroup(
+    /// `subgroupId` only when `Some`, and must be a subgroup of the group (404 otherwise); any other group's
+    /// business verifications cover all its subgroups. Returns the
+    /// [`get_business_verifications`](Self::get_business_verifications) shape, plus `subgroupId` when they belong
+    /// to that one subgroup.
+    pub async fn get_business_verifications_for_subgroup(
         &self,
         group_id: &str,
         subgroup_id: Option<&str>,
@@ -190,37 +201,64 @@ impl BrandsDomain {
             .await
     }
 
-    /// Submit or update a group's business verification. Allowed when it is not started or needs changes.
-    /// Review usually takes 1–2 business days; the group's toll-free brands stay pending until it is verified.
+    /// Get one of a group's business verifications by its ID.
     ///
-    /// **PUT** `/brand/business-verification/:groupId`
+    /// **GET** `/brand/business-verification/:groupId/:businessVerificationId`
+    ///
+    /// Returns the business verification, as [`get_business_verifications`](Self::get_business_verifications)
+    /// lists it, plus `required`. 404 when it isn't one of the group's.
+    pub async fn get_business_verification(
+        &self,
+        group_id: &str,
+        business_verification_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("groupId", Some(group_id)),
+            ("businessVerificationId", Some(business_verification_id)),
+        ])?;
+        let safe_group_id = urlencoding::encode(group_id);
+        let safe_id = urlencoding::encode(business_verification_id);
+        self.http
+            .request_json(
+                &format!("/brand/business-verification/{}/{}", safe_group_id, safe_id),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Create and submit a new business verification. Review usually takes 1–2 business days; once it is
+    /// `VERIFIED`, a new toll-free brand can use it as `tollFree.businessVerificationId`.
+    ///
+    /// **POST** `/brand/business-verification/:groupId`
     ///
     /// `details` holds businessName, businessType, industry, registrationType, registrationNumber, website, street,
     /// optional street2, city, state, postalCode, country (`US` or `CA`) and a `representative` object (firstName,
-    /// lastName, email, phone, jobTitle, jobLevel). Returns 202 with the
-    /// [`get_business_verification`](Self::get_business_verification) shape. For a group that verifies each
-    /// subgroup's business separately, use
-    /// [`submit_business_verification_for_subgroup`](Self::submit_business_verification_for_subgroup).
-    pub async fn submit_business_verification(
+    /// lastName, email, phone, jobTitle, jobLevel). Returns 202 with the business verification, status
+    /// `SUBMITTING`. For a group that verifies each subgroup's business separately, use
+    /// [`create_business_verification_for_subgroup`](Self::create_business_verification_for_subgroup).
+    pub async fn create_business_verification(
         &self,
         group_id: &str,
         details: &Value,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        self.submit_business_verification_for_subgroup(group_id, details, None, options)
+        self.create_business_verification_for_subgroup(group_id, details, None, options)
             .await
     }
 
-    /// Submit or update a business verification, naming the subgroup it is for.
+    /// Create and submit a new business verification, naming the subgroup it is for.
     ///
-    /// **PUT** `/brand/business-verification/:groupId?subgroupId=...`
+    /// **POST** `/brand/business-verification/:groupId?subgroupId=...`
     ///
     /// `subgroup_id` is required for a group that verifies each subgroup's business separately (400 without it).
     /// It is sent as `subgroupId` only when `Some`, and must be an active subgroup of the group (404 when it is
-    /// not in the group, 400 when it is inactive); any other group submits its one business verification.
-    /// `details` is as for [`submit_business_verification`](Self::submit_business_verification). Returns 202 with
-    /// the [`get_business_verification_for_subgroup`](Self::get_business_verification_for_subgroup) shape.
-    pub async fn submit_business_verification_for_subgroup(
+    /// not in the group, 400 when it is inactive); in any other group the business verification covers all its
+    /// subgroups. `details` is as for [`create_business_verification`](Self::create_business_verification).
+    /// Returns 202 with the business verification, status `SUBMITTING`.
+    pub async fn create_business_verification_for_subgroup(
         &self,
         group_id: &str,
         details: &Value,
@@ -233,6 +271,36 @@ impl BrandsDomain {
         self.http
             .request_json(
                 &format!("/brand/business-verification/{}{}", safe, qs),
+                Method::POST,
+                Some(details),
+                options,
+            )
+            .await
+    }
+
+    /// Correct and resubmit a business verification. Allowed only while its status is `NEEDS_CHANGES` (400
+    /// otherwise); the toll-free brands that use it stay pending until it is verified.
+    ///
+    /// **PUT** `/brand/business-verification/:groupId/:businessVerificationId`
+    ///
+    /// `details` is as for [`create_business_verification`](Self::create_business_verification). Returns 202 with
+    /// the business verification, status `SUBMITTING`; 404 when it isn't one of the group's.
+    pub async fn update_business_verification(
+        &self,
+        group_id: &str,
+        business_verification_id: &str,
+        details: &Value,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("groupId", Some(group_id)),
+            ("businessVerificationId", Some(business_verification_id)),
+        ])?;
+        let safe_group_id = urlencoding::encode(group_id);
+        let safe_id = urlencoding::encode(business_verification_id);
+        self.http
+            .request_json(
+                &format!("/brand/business-verification/{}/{}", safe_group_id, safe_id),
                 Method::PUT,
                 Some(details),
                 options,

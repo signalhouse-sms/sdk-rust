@@ -2,6 +2,8 @@
 
 Official Rust client library for the [SignalHouse](https://signalhouse.io) SMS/MMS messaging platform.
 
+Full API reference and guides: https://app2.signalhouse.io/docs
+
 ## Installation
 
 Add to your `Cargo.toml`:

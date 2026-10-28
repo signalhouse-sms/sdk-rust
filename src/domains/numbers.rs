@@ -710,6 +710,9 @@ impl NumbersDomain {
 
     /// Approve a port-in request.
     ///
+    /// `sub_group_id` assigns a subgroup when the request has none yet. Ignored if the request
+    /// already has a subgroup assigned -- an existing assignment is never overwritten.
+    ///
     /// **POST** `/number/portin/:id/approve`
     ///
     /// Requires the `admin` crate feature.
@@ -717,15 +720,17 @@ impl NumbersDomain {
     pub async fn approve_port_request(
         &self,
         porting_id: &str,
+        sub_group_id: Option<&str>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
         HttpClient::require(&[("portingId", Some(porting_id))])?;
         let safe = urlencoding::encode(porting_id);
+        let body = sub_group_id.map(|v| json!({ "subGroupId": v }));
         self.http
             .request_json(
                 &format!("/number/portin/{}/approve", safe),
                 Method::POST,
-                None,
+                body.as_ref(),
                 options,
             )
             .await
