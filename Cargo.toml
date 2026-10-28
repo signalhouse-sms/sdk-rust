@@ -1,0 +1,25 @@
+[package]
+name = "signalhouse-sms"
+version = "1.5.1"
+edition = "2021"
+authors = ["Signal House LLC"]
+description = "Official Rust SDK for the SignalHouse platform"
+license = "ISC"
+rust-version = "1.70"
+repository = "https://github.com/signalhouse-sms/sdk-rust"
+readme = "README.md"
+keywords = ["signalhouse", "sms", "mms", "messaging", "sdk"]
+categories = ["api-bindings"]
+exclude = [".github/", "ci/", "rust-documentation/"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+urlencoding = "2"
+
+[features]
+default = []
+admin = []

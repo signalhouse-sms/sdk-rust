@@ -1,0 +1,63 @@
+# Runs on the public mirror only; in the monorepo this file is inert.
+name: Release
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+    inputs:
+      reconcile: { description: "existing tag, e.g. v1.6.0: re-run release + publish; each step skips what exists", required: true }
+concurrency: { group: "release-${{ github.ref_name }}", cancel-in-progress: false }
+permissions: { contents: write, id-token: write, issues: write }
+jobs:
+  release:
+    if: "github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'Release-Version: ')"
+    runs-on: ubuntu-latest
+    outputs: { version: "${{ steps.ver.outputs.version }}", skip: "${{ steps.ver.outputs.skip }}" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, ref: "${{ inputs.reconcile || github.sha }}" }
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with: { components: "rustfmt, clippy" }
+      - id: ver
+        run: |
+          v=$(git log -1 --format='%(trailers:key=Release-Version,valueonly)' | tr -d '[:space:]')
+          if [ -z "$v" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -n "$RECONCILE" ] && [ "$RECONCILE" != "v$v" ]; then
+            echo "::error::reconcile input does not match Release-Version ($v)"; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+        env: { RECONCILE: "${{ inputs.reconcile }}" }
+      - if: steps.ver.outputs.skip != 'true'
+        run: ci/gate.sh && ci/release.sh
+        env: { GH_TOKEN: "${{ github.token }}", EXPECTED_VERSION: "${{ steps.ver.outputs.version }}" }
+  publish:
+    needs: release
+    if: always() && needs.release.result == 'success' && needs.release.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: "${{ format('v{0}', needs.release.outputs.version) }}", persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with: { components: "rustfmt, clippy" }
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: crates
+      - run: ci/publish.sh
+        env: { CARGO_REGISTRY_TOKEN: "${{ steps.crates.outputs.token }}" }
+  notify:
+    needs: [release, publish]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = "Release failing";
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `Release run failed: ${run}\n\nRef: \`${context.ref}\`, commit \`${context.sha}\`. Fix the cause, then re-run with \`reconcile: v<version>\`.`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: "open", per_page: 100 });
+            const open = issues.find((i) => i.title === title && !i.pull_request);
+            if (open) await github.rest.issues.createComment({ ...context.repo, issue_number: open.number, body });
+            else await github.rest.issues.create({ ...context.repo, title, body });
