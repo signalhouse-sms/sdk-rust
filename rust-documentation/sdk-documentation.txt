@@ -106,6 +106,95 @@ AUTH  (client.auth)
       options) -> Result<SignalHouseResponse>
     Get token login history.
 
+  get_oauth_authorization_url(provider, next) -> Result<String>
+    Build the browser URL that starts an OAuth sign-in (a redirect, not an
+    API call). Same as get_oauth_authorization_url_with(provider, next,
+    None, None).
+
+  get_oauth_authorization_url_with(provider, next, email, link_ticket)
+      -> Result<String>
+    Build the OAuth authorization URL with optional extras.
+    provider: "google", "microsoft", "apple" or "sso" (Enterprise SSO).
+    email: required for "sso" -- the work email whose domain picks the
+      organization's identity provider.
+    link_ticket: from create_oauth_link; links the provider to the
+      signed-in account (returns to /Settings/Security with pendingLink --
+      pass it to confirm_oauth_link -- or linkError).
+    Query keys (only those set, in order): email, linkTicket, next.
+
+  get_oauth_reauth_authorization_url(provider, reauth_ticket) -> Result<String>
+    Build the URL that signs the caller in again with a provider already
+    linked to their account, to confirm it's them. reauth_ticket comes from
+    create_oauth_reauth; "sso" needs no email. Query key: reauthTicket.
+    Returns to /Settings/Security with a single-use pendingReauth (the session that
+    started it redeems it with confirm_oauth_reauth) or reauthError.
+
+  get_oauth_links(options) -> Result<SignalHouseResponse>
+    List the caller's sign-in methods. Sends a GET to /auth/oauth/links.
+    Returns: { passwordKnown, links: [{ provider, email, linkedAt,
+      lastLoginAt }] }
+
+  create_oauth_link(provider, options) -> Result<SignalHouseResponse>
+    Start linking "google", "microsoft" or "apple" to the caller's account.
+    Sends a POST to /auth/oauth/:provider/link (no body).
+    Requires a fresh confirm_two_factor_identity (spent by this call).
+    Returns: { linkTicket, expiresInSeconds } -- navigate the browser to
+      get_oauth_authorization_url_with(provider, None, None, Some(ticket)).
+      The browser returns to /Settings/Security?pendingLink=...; pass that
+      value to confirm_oauth_link to finish linking.
+
+  create_oauth_reauth(provider, options) -> Result<SignalHouseResponse>
+    Start signing in again with "google", "microsoft", "apple" or "sso",
+    already linked to the caller's account, to confirm it's them.
+    Sends a POST to /auth/oauth/:provider/reauth (no body). Spends nothing.
+    Returns: { reauthTicket, reauthSecret, expiresInSeconds } (keep reauthSecret for the confirm call) -- navigate the browser to
+      get_oauth_reauth_authorization_url(provider, ticket).
+
+  confirm_oauth_reauth(pending_reauth, reauth_secret, options)
+      -> Result<SignalHouseResponse>
+    Finish signing in again with a linked provider. Sends a POST to
+    /auth/oauth/reauth/confirm with { pendingReauth, reauthSecret }. pendingReauth
+    is the
+    single-use value (valid 5 minutes) the create_oauth_reauth round trip returns
+    to /Settings/Security with. It counts only for the same account and
+    session that started it; 400 when expired or used, 403 for another
+    account or session. reauthSecret is the value the create call returned;
+    a wrong or missing secret is refused (403) and uses up the re-sign-in.
+    Returns: { identityConfirmed } (true when 2FA is off, so it counts as a
+    confirmed identity).
+
+  confirm_oauth_link(pending_link, options) -> Result<SignalHouseResponse>
+    Finish linking a provider started with create_oauth_link; links it only
+    for the account the link was started for.
+    Sends a POST to /auth/oauth/links/confirm with { pendingLink }.
+    pending_link: the pendingLink query parameter from the redirect
+      (required).
+    Returns: { passwordKnown, links: [{ provider, email, linkedAt,
+      lastLoginAt }] }
+
+  delete_oauth_link(provider, options) -> Result<SignalHouseResponse>
+    Unlink "google", "microsoft", "apple" or "sso" from the caller's account.
+    Sends a DELETE to /auth/oauth/:provider/link.
+    Refused (400) if it is the account's only way to sign in.
+    Requires a fresh confirm_two_factor_identity.
+    Returns the remaining { passwordKnown, links }.
+
+  confirm_two_factor_identity(password, code, method, using_backup_code,
+      options) -> Result<SignalHouseResponse>
+    Confirm the account owner before a sensitive change (2FA changes,
+    create_oauth_link / delete_oauth_link, groups.save_sso_connection /
+    groups.delete_sso_connection). With 2FA on pass a code; with 2FA off
+    pass the password. An account without its own password
+    (passwordKnown: false) passes the code from
+    send_two_factor_identity_code("email") with method "email".
+    Lasts 5 minutes and unlocks exactly one change.
+
+  send_two_factor_identity_code(method, options)
+      -> Result<SignalHouseResponse>
+    Send a code by an enrolled "sms" or "email" method for
+    confirm_two_factor_identity (not needed for "app"). An account without
+    its own password (passwordKnown: false) passes "email".
+
 
 BILLING  (client.billing)
 --------------------------------------------------------------------------------
@@ -312,6 +401,38 @@ GROUPS  (client.groups)
 
   update_group(id, group_data, options) -> Result<SignalHouseResponse>
     Update group information.
+
+  Enterprise SSO (role: admin; group_id required on every call)
+
+  get_sso_configuration(group_id, options) -> Result<SignalHouseResponse>
+    Sends a GET to /group/sso?groupId=...
+    Returns: { groupId, available, callbackUrl, connection, domains }
+    (the client secret is never returned).
+
+  save_sso_connection(group_id, issuer, client_id, client_secret, enabled,
+      options) -> Result<SignalHouseResponse>
+    Create or update the group's OpenID Connect identity provider.
+    Sends a PUT to /group/sso with { groupId, issuer, clientId,
+    clientSecret?, enabled? } (None values omitted).
+    client_secret: Option<&str> -- required the first time; None keeps the
+      saved one. enabled: Option<bool> (server default true).
+    Requires a fresh auth.confirm_two_factor_identity.
+
+  delete_sso_connection(group_id, options) -> Result<SignalHouseResponse>
+    Remove the identity provider and its domains, and unlink every account
+    that signed in through it. Sends a DELETE to /group/sso?groupId=...
+    Requires a fresh auth.confirm_two_factor_identity.
+
+  add_sso_domain(group_id, domain, options) -> Result<SignalHouseResponse>
+    Claim an email domain. Sends a POST to /group/sso/domains with
+    { groupId, domain }. Response includes the DNS TXT verification record.
+
+  verify_sso_domain(group_id, domain, options) -> Result<SignalHouseResponse>
+    Verify a claimed domain by its DNS TXT record.
+    Sends a POST to /group/sso/domains/:domain/verify with { groupId }.
+
+  remove_sso_domain(group_id, domain, options) -> Result<SignalHouseResponse>
+    Remove a domain. Sends a DELETE to /group/sso/domains/:domain?groupId=...
 
 
 LANDINGS  (client.landings)

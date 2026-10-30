@@ -82,7 +82,7 @@ pub struct GetAnalyticsParams<'a> {
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
-    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless); single value, or a
+    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
     /// comma-separated list. Only accepted where the environment serves hourly analytics;
     /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
     pub carrier_family: Option<&'a str>,
@@ -125,7 +125,7 @@ pub struct GetAnalyticsDetailParams<'a> {
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
-    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless); single value, or a
+    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
     /// comma-separated list. Only accepted where the environment serves hourly analytics;
     /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
     pub carrier_family: Option<&'a str>,
@@ -224,7 +224,7 @@ pub struct GetAnalyticsBySubgroupParams<'a> {
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
-    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless); single value, or a
+    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
     /// comma-separated list. Only accepted where the environment serves hourly analytics;
     /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
     pub carrier_family: Option<&'a str>,
@@ -267,7 +267,7 @@ pub struct GetAnalyticsByErrorCodeParams<'a> {
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
-    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless); single value, or a
+    /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
     /// comma-separated list. Only accepted where the environment serves hourly analytics;
     /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
     pub carrier_family: Option<&'a str>,
@@ -683,7 +683,7 @@ impl MessagesDomain {
     /// "stop", "opt out"; a repeat opt-out records the most recent word), `null` for opt-outs
     /// recorded before keyword capture shipped — and `carrierFamily`, the resolved carrier family
     /// of the recipient number (Default, ATT, TMobile, Verizon, USCellular, GoogleVoice, ClearSky,
-    /// Interop, RogueMobile, Standard, IceWireless), copied from the inbound message that triggered the opt-out.
+    /// Interop, RogueMobile, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics), copied from the inbound message that triggered the opt-out.
     pub async fn get_dnc_records(
         &self,
         params: GetDncRecordsParams<'_>,

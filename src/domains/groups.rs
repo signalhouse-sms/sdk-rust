@@ -197,4 +197,140 @@ impl GroupsDomain {
             .request_json("/group/link-external", Method::POST, Some(&body), options)
             .await
     }
+
+    /// Get a group's Enterprise SSO configuration: whether SSO is available, the redirect URL to
+    /// register at the identity provider, the saved provider (never its client secret), and each
+    /// claimed domain with the DNS TXT record that verifies it.
+    ///
+    /// Returns `{ groupId, available, callbackUrl, connection, domains }`.
+    ///
+    /// **GET** `/group/sso?groupId=...`
+    pub async fn get_sso_configuration(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+        self.http
+            .request_json(&format!("/group/sso{}", qs), Method::GET, None, options)
+            .await
+    }
+
+    /// Create or update a group's OpenID Connect identity provider.
+    ///
+    /// `issuer` is the provider's https issuer URL and `client_id` the client ID registered at
+    /// the provider. `client_secret` is required the first time; pass `None` to keep the saved
+    /// one. `enabled` controls whether sign-in through the provider is on (server default true).
+    /// Requires a fresh `auth.confirm_two_factor_identity` from the same session. Returns the SSO
+    /// configuration.
+    ///
+    /// **PUT** `/group/sso`
+    pub async fn save_sso_connection(
+        &self,
+        group_id: &str,
+        issuer: &str,
+        client_id: &str,
+        client_secret: Option<&str>,
+        enabled: Option<bool>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("groupId", Some(group_id)),
+            ("issuer", Some(issuer)),
+            ("clientId", Some(client_id)),
+        ])?;
+        let mut body = json!({
+            "groupId": group_id,
+            "issuer": issuer,
+            "clientId": client_id,
+        });
+        if let Some(secret) = client_secret {
+            body["clientSecret"] = json!(secret);
+        }
+        if let Some(on) = enabled {
+            body["enabled"] = json!(on);
+        }
+        self.http
+            .request_json("/group/sso", Method::PUT, Some(&body), options)
+            .await
+    }
+
+    /// Remove a group's identity provider and its domains, and unlink every account that signed
+    /// in through it. Requires a fresh `auth.confirm_two_factor_identity` from the same session.
+    /// Returns the (now empty) SSO configuration.
+    ///
+    /// **DELETE** `/group/sso?groupId=...`
+    pub async fn delete_sso_connection(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+        self.http
+            .request_json(&format!("/group/sso{}", qs), Method::DELETE, None, options)
+            .await
+    }
+
+    /// Claim an email domain (e.g. "acme.com") for a group's SSO. The response (the SSO
+    /// configuration) includes the DNS TXT record that verifies it.
+    ///
+    /// **POST** `/group/sso/domains`
+    pub async fn add_sso_domain(
+        &self,
+        group_id: &str,
+        domain: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id)), ("domain", Some(domain))])?;
+        let body = json!({ "groupId": group_id, "domain": domain });
+        self.http
+            .request_json("/group/sso/domains", Method::POST, Some(&body), options)
+            .await
+    }
+
+    /// Verify a claimed domain by its DNS TXT record. Returns the SSO configuration.
+    ///
+    /// **POST** `/group/sso/domains/:domain/verify`
+    pub async fn verify_sso_domain(
+        &self,
+        group_id: &str,
+        domain: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id)), ("domain", Some(domain))])?;
+        let safe = urlencoding::encode(domain);
+        let body = json!({ "groupId": group_id });
+        self.http
+            .request_json(
+                &format!("/group/sso/domains/{}/verify", safe),
+                Method::POST,
+                Some(&body),
+                options,
+            )
+            .await
+    }
+
+    /// Remove a domain from a group's SSO. Returns the SSO configuration.
+    ///
+    /// **DELETE** `/group/sso/domains/:domain?groupId=...`
+    pub async fn remove_sso_domain(
+        &self,
+        group_id: &str,
+        domain: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id)), ("domain", Some(domain))])?;
+        let safe = urlencoding::encode(domain);
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+        self.http
+            .request_json(
+                &format!("/group/sso/domains/{}{}", safe, qs),
+                Method::DELETE,
+                None,
+                options,
+            )
+            .await
+    }
 }

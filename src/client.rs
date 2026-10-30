@@ -38,6 +38,11 @@ pub(crate) struct HttpClient {
 }
 
 impl HttpClient {
+    /// The API base URL this client was configured with.
+    pub(crate) fn base_url(&self) -> &str {
+        self.base_url.trim_end_matches('/')
+    }
+
     /// Send a JSON-body request and return a standardised response.
     pub async fn request_json(
         &self,

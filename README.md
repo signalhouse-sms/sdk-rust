@@ -98,7 +98,6 @@ again. Keys are scoped to the authenticated user and kept for 24 hours.
 Methods that require SignalHouse staff roles are gated behind the `admin`
 Cargo feature. These include:
 
-- `brands.get_toll_free_isv_account` / `brands.set_toll_free_isv_account`
 - `campaigns.approve_campaign` / `campaigns.reject_campaign`
 - `groups.get_groups` / `groups.create_group` / `groups.delete_group`
 - `subscriptions.get_templates` / `subscriptions.create_template` / `subscriptions.update_template` / `subscriptions.delete_template` / `subscriptions.create_custom_subscription`
