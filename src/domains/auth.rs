@@ -237,8 +237,8 @@ impl AuthDomain {
         ))
     }
 
-    /// Build the URL that signs the caller in again with `provider` ("google", "microsoft",
-    /// "apple" or "sso"), already linked to their account, to confirm it's them. `reauth_ticket`
+    /// Build the URL that signs the caller in again with `provider` ("microsoft", "apple" or
+    /// "sso"; not Google), already linked to their account, to confirm it's them. `reauth_ticket`
     /// comes from `create_oauth_reauth`; "sso" needs no email here.
     ///
     /// Navigate a browser to it; it is a redirect, not an API call. The API returns the user to
@@ -301,8 +301,9 @@ impl AuthDomain {
             .await
     }
 
-    /// Start signing in again with `provider` ("google", "microsoft", "apple" or "sso"), which
-    /// must already be linked to the caller's account, to confirm it's them. Spends nothing.
+    /// Start signing in again with `provider` ("microsoft", "apple" or "sso"), which must already
+    /// be linked to the caller's account, to confirm it's them. Spends nothing. Google is refused
+    /// with a 400 because it can't confirm a fresh sign-in; confirm with a code instead.
     ///
     /// Returns a single-use ticket (valid 2 minutes) as `{ reauthTicket, reauthSecret, expiresInSeconds }`.
     /// Keep `reauthSecret` in the client that started the flow: it is returned only here, and
@@ -388,7 +389,7 @@ impl AuthDomain {
 
     /// Unlink `provider` ("google", "microsoft", "apple" or "sso") from the caller's account.
     ///
-    /// Refused (400) when it is the account's only way to sign in. Requires a fresh
+    /// Refused (400) when it is the account's only way to sign in. With 2FA on and no password, the last linked Microsoft, Apple or SSO sign-in is refused (400) too. Requires a fresh
     /// `confirm_two_factor_identity` from the same session. Returns the remaining
     /// `{ passwordKnown, links }`.
     ///

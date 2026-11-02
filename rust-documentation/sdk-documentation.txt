@@ -144,7 +144,7 @@ AUTH  (client.auth)
       value to confirm_oauth_link to finish linking.
 
   create_oauth_reauth(provider, options) -> Result<SignalHouseResponse>
-    Start signing in again with "google", "microsoft", "apple" or "sso",
+    Start signing in again with "microsoft", "apple" or "sso" (Google is refused with 400),
     already linked to the caller's account, to confirm it's them.
     Sends a POST to /auth/oauth/:provider/reauth (no body). Spends nothing.
     Returns: { reauthTicket, reauthSecret, expiresInSeconds } (keep reauthSecret for the confirm call) -- navigate the browser to
@@ -175,7 +175,7 @@ AUTH  (client.auth)
   delete_oauth_link(provider, options) -> Result<SignalHouseResponse>
     Unlink "google", "microsoft", "apple" or "sso" from the caller's account.
     Sends a DELETE to /auth/oauth/:provider/link.
-    Refused (400) if it is the account's only way to sign in.
+    Refused (400) if it is the account's only way to sign in. With 2FA on and no password, the last linked Microsoft, Apple or SSO sign-in is refused (400) too.
     Requires a fresh confirm_two_factor_identity.
     Returns the remaining { passwordKnown, links }.
 

@@ -135,6 +135,30 @@ impl CampaignsDomain {
             .await
     }
 
+    /// Get today's T-Mobile usage against the daily limit for every active campaign in a group that has one: the same limits and counter as `get_campaign_throughput_limits`, for the whole
+    /// group in one call. Returns `[{ campaignId, brandId, brandName, usecase, tmobile: { tier, dailyLimit, usedToday: { date, segments, resetsAt } } }]`.
+    /// Campaigns without a T-Mobile limit (unverified brand, GOVERNMENT entity, PUBLIC_SAFETY_RESTRICTED usecase) are left out. The counter is per brand EIN and UTC day, so every campaign of a brand shows the same usage; a LOW_VOLUME campaign's limit is 2,000 whatever the brand's score.
+    ///
+    /// **GET** `/campaign/throughput-usage?groupId=...`
+    pub async fn get_group_throughput_usage(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+
+        self.http
+            .request_json(
+                &format!("/campaign/throughput-usage{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Create a new campaign.
     ///
     /// **POST** `/campaign`
