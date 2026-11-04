@@ -89,7 +89,7 @@ fn offline() -> SignalHouseClient {
 fn rcs_body() -> Value {
     json!({
         "channel": "rcs",
-        "contentFormat": "rcs.blocks.v1",
+        "contentFormat": "content.v1",
         "content": { "blocks": [{ "id": "b1", "kind": "text", "text": "Hi {{first_name}}" }] },
         "variables": [{ "key": "first_name", "type": "text", "required": true }],
         "defaults": {},
@@ -156,6 +156,12 @@ async fn reads_put_tenant_and_selectors_in_the_query() {
     assert_eq!(
         request_line(&wire),
         "GET /template/capabilities?groupId=G1&channel=rcs&provider=sinch"
+    );
+
+    let wire = capture!(client => client.templates.geocode_address("G1", "Chicago", None));
+    assert_eq!(
+        request_line(&wire),
+        "GET /template/geocode?groupId=G1&address=Chicago"
     );
 }
 
@@ -276,6 +282,7 @@ async fn missing_inputs_fail_before_transport() {
             .await
     ));
     assert!(rejected(mt.capabilities("", None, None, None).await));
+    assert!(rejected(mt.geocode_address("G1", "", None).await));
     assert!(rejected(
         mt.upload_media("G1", Vec::new(), "hero.png", None).await
     ));

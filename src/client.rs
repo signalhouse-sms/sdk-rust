@@ -14,6 +14,7 @@ use crate::domains::messages::MessagesDomain;
 use crate::domains::notifications::NotificationsDomain;
 use crate::domains::numbers::NumbersDomain;
 use crate::domains::onboarding::OnboardingDomain;
+use crate::domains::rcs::RcsDomain;
 use crate::domains::registrations::RegistrationsDomain;
 use crate::domains::shortlinks::ShortlinksDomain;
 use crate::domains::subgroups::SubgroupsDomain;
@@ -222,6 +223,8 @@ pub struct SignalHouseClient {
     pub notifications: NotificationsDomain,
     pub numbers: NumbersDomain,
     pub onboarding: OnboardingDomain,
+    /// RCS (Google RBM) resources: agents on `/rcs/agent`.
+    pub rcs: RcsDomain,
     pub registrations: RegistrationsDomain,
     pub shortlinks: ShortlinksDomain,
     pub subgroups: SubgroupsDomain,
@@ -268,6 +271,7 @@ impl SignalHouseClient {
             notifications: NotificationsDomain::new(Arc::clone(&http)),
             numbers: NumbersDomain::new(Arc::clone(&http)),
             onboarding: OnboardingDomain::new(Arc::clone(&http)),
+            rcs: RcsDomain::new(Arc::clone(&http)),
             registrations: RegistrationsDomain::new(Arc::clone(&http)),
             shortlinks: ShortlinksDomain::new(Arc::clone(&http)),
             subgroups: SubgroupsDomain::new(Arc::clone(&http)),

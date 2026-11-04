@@ -33,6 +33,10 @@ pub struct GetRegistrationsParams<'a> {
     pub parent_registration_id: Option<&'a str>,
     /// Filter to registrations holding this phone number.
     pub phone_number: Option<&'a str>,
+    /// RCS agents only: agents linked to this 10DLC brand (carrier ID, provisional UUID or `_id`).
+    pub brand_id: Option<&'a str>,
+    /// RCS agents only: agents linked to this 10DLC campaign (campaign ID or `_id`).
+    pub campaign_id: Option<&'a str>,
     /// One of `createdAt` (default), `subgroupId`, `registrationId`, `region` or `status`.
     pub sort_by: Option<&'a str>,
     /// `asc` or `desc` (default).
@@ -139,6 +143,8 @@ impl RegistrationsDomain {
                 params.parent_registration_id.map(String::from),
             ),
             ("phoneNumber", params.phone_number.map(String::from)),
+            ("brandId", params.brand_id.map(String::from)),
+            ("campaignId", params.campaign_id.map(String::from)),
             ("sortBy", params.sort_by.map(String::from)),
             ("sortOrder", params.sort_order.map(String::from)),
             ("page", params.page.map(|n| n.to_string())),
@@ -169,9 +175,109 @@ impl RegistrationsDomain {
             .await
     }
 
+    /// Edit a draft, or a registration Signal House rejected, before submitting it (types that keep
+    /// drafts, such as `RCS_AGENT`).
+    ///
+    /// **PUT** `/registration/:registrationId`
+    ///
+    /// `data` is a partial of the type's create fields, sent as the body: for `RCS_AGENT` `agent`
+    /// and `consent` merge field by field, every other key replaces, and `campaignId: null` unlinks
+    /// the campaign. 409 once submitted.
+    pub async fn update_registration(
+        &self,
+        registration_id: &str,
+        data: &Value,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        if data.is_null() {
+            return Err(SignalHouseError::Validation("data".to_string()));
+        }
+        let safe = urlencoding::encode(registration_id);
+        self.http
+            .request_json(
+                &format!("/registration/{}", safe),
+                Method::PUT,
+                Some(data),
+                options,
+            )
+            .await
+    }
+
+    /// Check a draft against every submit requirement and the live state of its links, without
+    /// writing; returns `{ valid, errors: [{ field, reason }], warnings: [{ field, reason }] }`.
+    ///
+    /// **POST** `/registration/:registrationId/validate`
+    pub async fn validate_registration(
+        &self,
+        registration_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        let safe = urlencoding::encode(registration_id);
+        self.http
+            .request_json(
+                &format!("/registration/{}/validate", safe),
+                Method::POST,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Submit a draft; returns the registration. A type Signal House reviews goes to
+    /// `SIGNAL_HOUSE_REVIEW`; a type it does not (`RCS_AGENT`) goes to `SUBMITTING` and is filed
+    /// with the provider at once. A draft that fails a requirement gets a 400 whose details carry
+    /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`; a second submit, or one of a
+    /// registration the provider already holds, gets a 409.
+    ///
+    /// **POST** `/registration/:registrationId/submit`
+    pub async fn submit_registration(
+        &self,
+        registration_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        let safe = urlencoding::encode(registration_id);
+        self.http
+            .request_json(
+                &format!("/registration/{}/submit", safe),
+                Method::POST,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Request the launch of a registration the provider already holds (an RCS agent in testing):
+    /// the launch requirements are checked and the registration goes to `SIGNAL_HOUSE_REVIEW`,
+    /// whose approval files the provider's launch request. Allowed while the provider reports the
+    /// agent ready for testing, after a Signal House rejection, or after every carrier refused an
+    /// earlier launch (409 otherwise); a failed requirement is a 400 whose details carry
+    /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`.
+    ///
+    /// **POST** `/registration/:registrationId/launch`
+    pub async fn launch_registration(
+        &self,
+        registration_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        let safe = urlencoding::encode(registration_id);
+        self.http
+            .request_json(
+                &format!("/registration/{}/launch", safe),
+                Method::POST,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Cancel a registration. Allowed from SIGNAL_HOUSE_REVIEW, SIGNAL_HOUSE_APPROVED,
-    /// PENDING_PROVIDER, NEEDS_INFORMATION, PAYMENT_REQUIRED and APPROVED (409 otherwise). Numbers
-    /// already allocated stay on the account and stop sending.
+    /// PENDING_PROVIDER, NEEDS_INFORMATION, PAYMENT_REQUIRED and APPROVED (409 otherwise), and for
+    /// types that keep drafts also from DRAFT and SIGNAL_HOUSE_REJECTED. Numbers already allocated
+    /// stay on the account and stop sending.
     ///
     /// **DELETE** `/registration/:registrationId`
     pub async fn cancel_registration(

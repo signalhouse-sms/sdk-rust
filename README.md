@@ -79,13 +79,14 @@ again. Keys are scoped to the authenticated user and kept for 24 hours.
 |---|---|
 | `auth` | Login, password reset, auth history |
 | `billing` | Wallets, payment methods, funds, invoices, fees |
-| `brands` | 10DLC brand registration and vetting, toll-free business verification |
+| `brands` | 10DLC and toll-free brand registration and vetting |
 | `campaigns` | 10DLC campaign registration |
 | `groups` | Group management |
 | `landings` | Brand/campaign landing pages |
 | `messages` | Send SMS/MMS, message logs, analytics |
 | `notifications` | In-app notifications |
 | `numbers` | Phone number purchase, assignment, porting |
+| `rcs` | RCS agents (`rcs.agents`, `/rcs/agent`): drafts, validate, submit, archive, logo/hero upload |
 | `shortlinks` | URL shortener |
 | `subgroups` | Subgroup management |
 | `subscriptions` | Subscription plans and billing |

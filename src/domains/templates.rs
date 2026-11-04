@@ -246,6 +246,33 @@ impl TemplatesDomain {
             .await
     }
 
+    /// Resolve an address to coordinates for a VIEW_LOCATION suggestion: `{address, latitude, longitude, partialMatch}`.
+    ///
+    /// **GET** `/template/geocode`
+    ///
+    /// 400 `LOCATION_NOT_FOUND` when nothing matches; 429 past the group's lookup window; 503 when the server has
+    /// no geocoding provider.
+    pub async fn geocode_address(
+        &self,
+        group_id: &str,
+        address: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id)), ("address", Some(address))])?;
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", Some(group_id.to_string())),
+            ("address", Some(address.to_string())),
+        ]);
+        self.http
+            .request_json(
+                &format!("/template/geocode{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Upload one template media file (multipart `file` + `groupId`); returns the MediaAsset (HTTP 201).
     ///
     /// **POST** `/template/media`

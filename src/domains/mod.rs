@@ -9,6 +9,7 @@ pub mod messages;
 pub mod notifications;
 pub mod numbers;
 pub mod onboarding;
+pub mod rcs;
 pub mod registrations;
 pub mod shortlinks;
 pub mod subgroups;

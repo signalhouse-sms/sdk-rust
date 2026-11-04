@@ -271,6 +271,8 @@ async fn catalog_quotes_list_read_and_submission_contracts() {
                 status: Some("PENDING_PROVIDER,APPROVED"),
                 parent_registration_id: Some("REG0"),
                 phone_number: Some("15551234567"),
+                brand_id: None,
+                campaign_id: None,
                 sort_by: Some("status"),
                 sort_order: Some("asc"),
                 page: Some(2),
@@ -823,158 +825,49 @@ async fn staff_set_toll_free_provider_contract() {
 }
 
 #[tokio::test]
-async fn business_verification_list_read_create_and_update_contracts() {
+async fn toll_free_requirements_read_contract() {
     let (client, request) = capture_server();
     client
         .brands
-        .get_business_verifications("G 1", None)
+        .get_toll_free_requirements("G 1", None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
-    assert!(wire.starts_with("GET /brand/business-verification/G%201 "));
+    assert!(wire.starts_with("GET /brand/toll-free-requirements/G%201 "));
     assert_eq!(wire.split("\r\n\r\n").nth(1).unwrap_or(""), "");
 
+    let client = SignalHouseClient::new(SignalHouseConfig {
+        api_key: "test".into(),
+        base_url: "http://127.0.0.1:1".into(),
+    })
+    .unwrap();
+    assert!(matches!(
+        client.brands.get_toll_free_requirements("", None).await,
+        Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
+    ));
+}
+
+#[tokio::test]
+async fn toll_free_brand_create_sends_the_business_details_unchanged() {
     let (client, request) = capture_server();
-    let details = serde_json::json!({
-        "businessName": "Acme Inc", "businessType": "CORPORATION", "industry": "RETAIL",
-        "registrationType": "EIN", "registrationNumber": "12-3456789",
-        "website": "https://acme.example", "street": "1 Main St", "city": "Austin",
-        "state": "TX", "postalCode": "78701", "country": "US",
-        "representative": {
-            "firstName": "Ada", "lastName": "Lee", "email": "ada@acme.example",
-            "phone": "+15125550100", "jobTitle": "Owner", "jobLevel": "CEO"
+    let brand_data = serde_json::json!({
+        "subgroupId": "S0000001", "displayName": "Acme", "companyName": "Acme Inc",
+        "street": "1 Main St", "city": "Austin", "state": "TX", "postalCode": "78701",
+        "email": "support@acme.example", "firstName": "Ada", "lastName": "Lee",
+        "website": "https://acme.example",
+        "tollFree": {
+            "businessRegistrationType": "EIN", "legalEntityType": "PRIVATE_COMPANY",
+            "taxId": "12-3456789", "countryCode": "US", "supportPhone": "15125550100",
+            "businessStructure": "CORPORATION", "industry": "RETAIL",
+            "contactEmail": "ada@acme.example", "contactJobTitle": "Owner", "contactJobLevel": "CEO"
         }
     });
     client
         .brands
-        .create_business_verification("G 1", &details, None)
+        .create_toll_free_brand(&brand_data, None)
         .await
         .unwrap();
     let wire = request.join().unwrap();
-    assert!(wire.starts_with("POST /brand/business-verification/G%201 "));
-    assert_eq!(body(&wire), details);
-
-    let (client, request) = capture_server();
-    client
-        .brands
-        .get_business_verification("G 1", "BV 1", None)
-        .await
-        .unwrap();
-    let wire = request.join().unwrap();
-    assert!(wire.starts_with("GET /brand/business-verification/G%201/BV%201 "));
-    assert_eq!(wire.split("\r\n\r\n").nth(1).unwrap_or(""), "");
-
-    let (client, request) = capture_server();
-    client
-        .brands
-        .update_business_verification("G 1", "BV 1", &details, None)
-        .await
-        .unwrap();
-    let wire = request.join().unwrap();
-    assert!(wire.starts_with("PUT /brand/business-verification/G%201/BV%201 "));
-    assert_eq!(body(&wire), details);
-
-    let client = SignalHouseClient::new(SignalHouseConfig {
-        api_key: "test".into(),
-        base_url: "http://127.0.0.1:1".into(),
-    })
-    .unwrap();
-    assert!(matches!(
-        client.brands.get_business_verifications("", None).await,
-        Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
-    ));
-    assert!(matches!(
-        client
-            .brands
-            .create_business_verification("", &details, None)
-            .await,
-        Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
-    ));
-    for (group_id, id, missing) in [
-        ("", "BV1", "groupId"),
-        ("G0000001", "", "businessVerificationId"),
-    ] {
-        assert!(
-            matches!(
-                client.brands.get_business_verification(group_id, id, None).await,
-                Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == missing
-            ),
-            "get_business_verification without {missing}"
-        );
-        assert!(
-            matches!(
-                client
-                    .brands
-                    .update_business_verification(group_id, id, &details, None)
-                    .await,
-                Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == missing
-            ),
-            "update_business_verification without {missing}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn business_verification_for_subgroup_sends_subgroup_id_only_when_given() {
-    let (client, request) = capture_server();
-    client
-        .brands
-        .get_business_verifications_for_subgroup("G 1", Some("S 1"), None)
-        .await
-        .unwrap();
-    let wire = request.join().unwrap();
-    assert!(wire.starts_with("GET /brand/business-verification/G%201?subgroupId=S%201 "));
-    assert_eq!(wire.split("\r\n\r\n").nth(1).unwrap_or(""), "");
-
-    let (client, request) = capture_server();
-    client
-        .brands
-        .get_business_verifications_for_subgroup("G 1", None, None)
-        .await
-        .unwrap();
-    assert!(request
-        .join()
-        .unwrap()
-        .starts_with("GET /brand/business-verification/G%201 "));
-
-    let details = serde_json::json!({ "businessName": "Acme Inc", "country": "US" });
-    let (client, request) = capture_server();
-    client
-        .brands
-        .create_business_verification_for_subgroup("G 1", &details, Some("S 1"), None)
-        .await
-        .unwrap();
-    let wire = request.join().unwrap();
-    assert!(wire.starts_with("POST /brand/business-verification/G%201?subgroupId=S%201 "));
-    assert_eq!(body(&wire), details);
-
-    let (client, request) = capture_server();
-    client
-        .brands
-        .create_business_verification_for_subgroup("G 1", &details, None, None)
-        .await
-        .unwrap();
-    let wire = request.join().unwrap();
-    assert!(wire.starts_with("POST /brand/business-verification/G%201 "));
-    assert_eq!(body(&wire), details);
-
-    let client = SignalHouseClient::new(SignalHouseConfig {
-        api_key: "test".into(),
-        base_url: "http://127.0.0.1:1".into(),
-    })
-    .unwrap();
-    assert!(matches!(
-        client
-            .brands
-            .get_business_verifications_for_subgroup("", Some("S0000001"), None)
-            .await,
-        Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
-    ));
-    assert!(matches!(
-        client
-            .brands
-            .create_business_verification_for_subgroup("", &details, Some("S0000001"), None)
-            .await,
-        Err(signalhouse_sms::SignalHouseError::Validation(field)) if field == "groupId"
-    ));
+    assert!(wire.starts_with("POST /brand/toll-free "));
+    assert_eq!(body(&wire), brand_data);
 }
