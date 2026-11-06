@@ -34,7 +34,7 @@ pub struct GetMessagesParams<'a> {
     /// Accepts a single value (e.g. "SMS") or a comma-separated list (e.g. "SMS,MMS").
     /// Allowed values: SMS, MMS, RCS, WHATSAPP, VIBER, P2P. None defaults to all non-P2P types.
     pub message_type: Option<&'a str>,
-    /// Filter by channel — "tenDLC", "virtualLongCode", "tollFree", "shortCode", or "p2p" (single value, or a comma-separated
+    /// Filter by channel — "tenDLC", "virtualLongCode", "tollFree", "shortCode", "p2p", or "rcs" (single value, or a comma-separated
     /// list). Filters on each message's stored channel; older messages without one count as tenDLC.
     pub channel: Option<&'a str>,
     pub carrier: Option<&'a str>,
@@ -63,6 +63,21 @@ pub struct GetMessagesParams<'a> {
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing.
     pub region_scopes: Option<&'a str>,
+    /// RCS messages sent from this template.
+    pub template_id: Option<&'a str>,
+    /// RCS messages sent from this template version.
+    pub template_version: Option<u32>,
+    /// The RCS messages of one send.
+    pub bulk_id: Option<&'a str>,
+    /// Why an RCS message ran its fallback: `NOT_CAPABLE`, `CARRIER_NOT_LAUNCHED`, `TTL_EXPIRED`,
+    /// `RCS_ERROR`, `PROVIDER_ERROR` or `SMS_ONLY`.
+    pub fallback_reason: Option<&'a str>,
+    /// The RCS billing class: `RICH` or `RICH_MEDIA`.
+    pub billing_class: Option<&'a str>,
+    /// The channel that delivered an RCS message: `rcs`, `sms` or `mms`.
+    pub delivered_channel: Option<&'a str>,
+    /// `true` for RCS test messages only, `false` to leave them out.
+    pub is_test: Option<bool>,
 }
 
 /// Optional parameters for [`MessagesDomain::get_analytics`].
@@ -75,16 +90,14 @@ pub struct GetAnalyticsParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
     /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
-    /// comma-separated list. Only accepted where the environment serves hourly analytics;
-    /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
+    /// comma-separated list.
     pub carrier_family: Option<&'a str>,
     /// Scopes the SENTIMENT figures to "SMS", "MMS" or "P2P" (single value, or a comma-separated
     /// list). `None` means all scored types. Does NOT narrow the message counts, which are always
@@ -101,7 +114,7 @@ pub struct GetAnalyticsParams<'a> {
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -118,16 +131,14 @@ pub struct GetAnalyticsDetailParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
     /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
-    /// comma-separated list. Only accepted where the environment serves hourly analytics;
-    /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
+    /// comma-separated list.
     pub carrier_family: Option<&'a str>,
     /// Scopes the SENTIMENT figures to "SMS", "MMS" or "P2P" (single value, or a comma-separated
     /// list). `None` means all scored types. Does NOT narrow the message counts, which are always
@@ -142,22 +153,18 @@ pub struct GetAnalyticsDetailParams<'a> {
     /// Time-bucket grain of the `byDate` rows: `"day"` or `"hour"`. `None` means day (each row's
     /// `_id` is a `"YYYY-MM-DD"` date). `"hour"` buckets by hour (each row's `_id` is a
     /// `"YYYY-MM-DD HH:MM:SS"` UTC hour; `start_date` is floored to its hour and `end_date` honoured
-    /// as given) and is capped to a 7-day span. Only accepted where the environment serves hourly
-    /// analytics; elsewhere any value, including `"day"`, is rejected with a 400 -- leave it `None`
-    /// unless hour grain is wanted.
+    /// as given) and is capped to a 7-day span.
     pub granularity: Option<&'a str>,
     /// "carrier" or "carrierFamily". Adds a byBreakdown time × dimension series to the response
     /// ({dimension, rows}: each row is one byDate bucket (_id) for one carrier or carrier family
-    /// (key), top 50 keys by volume, excluding P2P) and caps the span at 31 days. Only accepted where
-    /// the environment serves hourly analytics; elsewhere any value is rejected with a 400 -- omit
-    /// the parameter unless it is wanted.
+    /// (key), top 50 keys by volume, excluding P2P) and caps the span at 31 days.
     pub breakdown: Option<&'a str>,
     /// Which contract binds `start_date`/`end_date`. `"day"`: each bound is widened to its whole
     /// UTC day. `"exact"`: a timestamp is bound as the instant it
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -174,8 +181,7 @@ pub struct GetAnalyticsThroughputParams<'a> {
     pub group_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). Single value, or a comma-separated list.
+    /// Filter to traffic attributed to these registrations. Single value, or a comma-separated list.
     pub registration_id: Option<&'a str>,
     /// Carrier-family filter (ATT, TMobile, Verizon, USCellular, ...).
     pub carrier_family: Option<&'a str>,
@@ -204,8 +210,7 @@ pub struct GetAnalyticsThroughputParams<'a> {
 pub struct GetAnalyticsFilterOptionsParams<'a> {
     pub group_id: &'a str,
     /// Restrict the options to one region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a
-    /// comma-separated list). Only accepted where the environment serves hourly analytics; elsewhere any value is
-    /// rejected with a 400.
+    /// comma-separated list).
     pub region: Option<&'a str>,
 }
 
@@ -217,16 +222,14 @@ pub struct GetAnalyticsBySubgroupParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
     /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
-    /// comma-separated list. Only accepted where the environment serves hourly analytics;
-    /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
+    /// comma-separated list.
     pub carrier_family: Option<&'a str>,
     pub start_date: Option<&'a str>,
     pub end_date: Option<&'a str>,
@@ -245,7 +248,7 @@ pub struct GetAnalyticsBySubgroupParams<'a> {
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -260,16 +263,14 @@ pub struct GetAnalyticsByErrorCodeParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
     pub carrier: Option<&'a str>,
     /// Filter by the recipient's resolved carrier family (Default, ATT, TMobile, Verizon,
     /// USCellular, GoogleVoice, ClearSky, Interop, RogueMobile, P2P, Standard, IceWireless, Bell, Rogers, Telus, Videotron, SaskTel, Eastlink, Fibernetics); single value, or a
-    /// comma-separated list. Only accepted where the environment serves hourly analytics;
-    /// elsewhere any value is rejected with a 400 -- omit the parameter unless it is wanted.
+    /// comma-separated list.
     pub carrier_family: Option<&'a str>,
     pub start_date: Option<&'a str>,
     pub end_date: Option<&'a str>,
@@ -284,7 +285,7 @@ pub struct GetAnalyticsByErrorCodeParams<'a> {
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -303,8 +304,7 @@ pub struct GetDncRecordsParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
@@ -324,7 +324,7 @@ pub struct GetDncRecordsParams<'a> {
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -338,8 +338,7 @@ pub struct GetDncAnalyticsParams<'a> {
     pub subgroup_id: Option<&'a str>,
     pub brand_id: Option<&'a str>,
     pub campaign_id: Option<&'a str>,
-    /// Filter to traffic attributed to these registrations (hourly analytics only; a 400 while
-    /// hourly reads are off). A `phone_number` filter takes precedence. Single value, or a
+    /// Filter to traffic attributed to these registrations. A `phone_number` filter takes precedence. Single value, or a
     /// comma-separated list.
     pub registration_id: Option<&'a str>,
     pub phone_number: Option<&'a str>,
@@ -355,7 +354,7 @@ pub struct GetDncAnalyticsParams<'a> {
     /// names and a bare date is its whole UTC day. `None`: `"day"`.
     pub date_bounds: Option<&'a str>,
     /// Filter by region — `"US"`, `"GB"`, or `"CA"` (any case of `"UK"`/`"GB"`/`"GBR"`/`"United Kingdom"` is accepted for GB; single value, or a comma-separated
-    /// list). Only accepted where the environment serves hourly analytics; elsewhere any value is rejected with a 400.
+    /// list).
     pub region: Option<&'a str>,
     /// JSON array of OR-ed branches `{region, channels, brandId?, campaignId?, phoneNumber?}` (channels: tenDLC,
     /// virtualLongCode, tollFree, shortCode, p2p); `"[]"` matches nothing. Same hourly-analytics gate as `region`.
@@ -382,7 +381,7 @@ impl MessagesDomain {
         Self { http }
     }
 
-    /// Get a list of messages with optional filters.
+    /// Get a list of messages with optional filters. `template_id` through `is_test` are RCS filters.
     ///
     /// Inbound messages in the response also carry `sentimentScore` (-100..100, null when
     /// unscored), `sentimentLabel` ("positive", "neutral" or "negative", null when
@@ -426,9 +425,37 @@ impl MessagesDomain {
             ("page", params.page.map(|p| p.to_string())),
             ("limit", params.limit.map(|l| l.to_string())),
             ("dateBounds", params.date_bounds.map(String::from)),
+            ("templateId", params.template_id.map(String::from)),
+            (
+                "templateVersion",
+                params.template_version.map(|n| n.to_string()),
+            ),
+            ("bulkId", params.bulk_id.map(String::from)),
+            ("fallbackReason", params.fallback_reason.map(String::from)),
+            ("billingClass", params.billing_class.map(String::from)),
+            (
+                "deliveredChannel",
+                params.delivered_channel.map(String::from),
+            ),
+            ("isTest", params.is_test.map(|flag| flag.to_string())),
         ]);
         self.http
             .request_json(&format!("/message{}", qs), Method::GET, None, options)
+            .await
+    }
+
+    /// Get one message of any type by its ID; an unknown ID is a 404.
+    ///
+    /// **GET** `/message/:id`
+    pub async fn get_message(
+        &self,
+        id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("id", Some(id))])?;
+        let safe = urlencoding::encode(id);
+        self.http
+            .request_json(&format!("/message/{}", safe), Method::GET, None, options)
             .await
     }
 
@@ -519,8 +546,7 @@ impl MessagesDomain {
     /// Get per-minute send throughput (peak segments per minute, sending minutes, minutes at a
     /// ceiling) per time bucket and per carrier family. Measured from SENT transitions at
     /// campaign × carrier-family grain — the grain carrier ceilings are enforced at — so a peak
-    /// here is the figure a ceiling is compared against. Only accepted where the environment
-    /// serves hourly analytics; elsewhere the request is rejected with a 400.
+    /// here is the figure a ceiling is compared against.
     ///
     /// Response: `totals`, `byDate`, `byCarrierFamily` and `byBreakdown` (`{dimension:
     /// "carrierFamily", rows}`). Every row carries `segments`, `messages`,

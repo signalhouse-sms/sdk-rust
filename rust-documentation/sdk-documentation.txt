@@ -450,9 +450,15 @@ MESSAGES  (client.messages)
 --------------------------------------------------------------------------------
   get_messages(GetMessagesParams { id, campaign_id, brand_id, subgroup_id,
       group_id, status, direction, message_type, carrier, sentiment_label,
-      error_code, start_date, end_date, sort_field, sort_order, page, limit },
+      error_code, start_date, end_date, sort_field, sort_order, page, limit,
+      template_id, template_version, bulk_id, fallback_reason, billing_class,
+      delivered_channel, is_test },
       options) -> Result<SignalHouseResponse>
-    List messages with extensive filters.
+    List messages with extensive filters. template_id through is_test are RCS
+    filters.
+
+  get_message(id, options) -> Result<SignalHouseResponse>
+    GET /message/:id. Get one message of any type. An unknown ID is a 404. Required: id
 
   get_analytics(GetAnalyticsParams { group_id, subgroup_id, brand_id,
       campaign_id, registration_id, phone_number, carrier, start_date, end_date },
@@ -672,7 +678,10 @@ TEMPLATES  (client.templates)
 
   create(group_id, name, body, tag,
       options) -> Result<SignalHouseResponse>
-    POST /template. Creates draft version 1; returns 201 {head, version}.
+    POST /template. Creates draft version 1; returns 201 {head, version, validation}.
+    validation is {valid, errors, warnings}, null when the checks could not run; update returns it too, and
+    publish returns {head, version, warnings}. A draft saves even when validation lists errors. On an RCS send, a
+    blocked row carries blockReason, reason and issues.
 
   list(GetTemplatesParams { group_id, state, channel,
       tag, search, sort_by, sort_order, page, limit },
@@ -718,6 +727,8 @@ TEMPLATES  (client.templates)
       options) -> Result<SignalHouseResponse>
     GET /template/capabilities. channel defaults to "rcs"; provider
     infobip|sinch adds provider limits and unsupported features.
+    Returns the allowed content, limits, time to live ranges (ttlPresets),
+    traffic types per use case and iPhone layout numbers (ios).
 
   geocode_address(group_id, address,
       options) -> Result<SignalHouseResponse>
@@ -734,10 +745,10 @@ TEMPLATES  (client.templates)
 
 RCS AGENTS  (client.rcs.agents)
 --------------------------------------------------------------------------------
-  RCS agents under /rcs/agent. An agent links one 10DLC brand and one 10DLC
-  campaign: the campaign's numbers are its SMS fallback, and the brand and
-  campaign supply the company identity and consent text for the carrier
-  launch. One brand or campaign can serve many agents. An agent is a
+  RCS agents under /rcs/agent. An agent links one brand and one campaign, of
+  any registration type: the campaign's numbers are its SMS fallback, and the
+  brand and campaign supply the company identity and consent text for the
+  carrier launch. One brand or campaign can serve many agents. An agent is a
   registration (type RCS_AGENT, agentId = registrationId "RCSA" + 10
   characters). 404 while RCS is disabled for the environment; 400 while the
   group's rcsEnabled flag is off. To use a new brand and campaign, create the
@@ -804,6 +815,9 @@ RCS AGENTS  (client.rcs.agents)
     Signal House's approval files the launch with the carrier partner. Allowed
     from IN_TESTING, REJECTED and CARRIER_REJECTED (409 otherwise); a failed
     requirement is 400 REGISTRATION_INCOMPLETE.
+    The request charges the agent's launch fees: a wallet that cannot cover
+    them gets a 402, and the agent stays where it is.
+    The agent's launchFees quotes what the next request charges.
 
   archive(agent_id, options) -> Result<SignalHouseResponse>
     POST /rcs/agent/:agentId/archive. Archive the agent.
@@ -817,6 +831,73 @@ RCS AGENTS  (client.rcs.agents)
     (224 x 224 px, 50 KB max) or hero (1440 x 448 px, 200 KB max) PNG or
     JPEG and set it on the draft. kind: logo | hero; file is Vec<u8>;
     file_name is optional. Required: agent_id, kind, file
+
+
+RCS MESSAGES  (client.rcs.messages)
+--------------------------------------------------------------------------------
+  Send through an agent. 404 while RCS is off for the environment, 403 while
+  the group's rcsEnabled flag is off, 409 while the agent cannot send yet.
+
+  send(SendRcsMessageParams { agent_id, recipients, template_id,
+      template_version, content, content_format, traffic_type, ttl_seconds,
+      expire_time, fallback, status_callback_url, enable_shortlink, is_test,
+      simulate }, options) -> Result<SignalHouseResponse>
+    POST /message/rcs.
+    Send to up to 100 recipients. A blocked recipient gets a BLOCKED message and
+    the rest still send. Exactly one of template_id or content; at most one of
+    ttl_seconds or expire_time. content_format: content.v1 (default) | google.rcs.
+    recipients is a list of { phoneNumber, variables, clientMessageId, metadata }.
+    fallback is { mode (auto, rcs_only, sms_only), channel (auto, sms, mms), from,
+    content: { text, mediaUrls }, validitySeconds }; without content the
+    template's fallback, else a generated one, is used. simulate: not_capable |
+    ttl_expired | delivered | read, approved testers only.
+    Required: agent_id, recipients
+    Returns: { requested, enqueued, failed, bulkId, messages } (201)
+
+  validate(SendRcsMessageParams { .. }, options) -> Result<SignalHouseResponse>
+    POST /message/rcs/validate. Check a send; writes nothing. Takes the same
+    arguments as send. Required: agent_id, recipients
+    Returns: { valid, errors, warnings, billingClass, segments,
+    estimatedCostMicros, unsupportedFiles, recipients }. It runs a send's
+    checks and holds no funds. valid is true only with no errors.
+
+  estimate(EstimateRcsMessageParams { agent_id, recipients, recipient_count,
+      template_id, template_version, content, content_format, traffic_type,
+      ttl_seconds, expire_time, fallback },
+      options) -> Result<SignalHouseResponse>
+    POST /message/estimate with channel "rcs" added. Price a draft in
+    microdollars; no charge or send. Exactly one of recipients or
+    recipient_count. The fallback's from is optional for an estimate; with
+    none, the fallback leg is priced on the channel of the agent's linked
+    campaign. Required: agent_id
+    Returns: { billingClass, segments, recipientCount, rcsLeg, fallbackLeg,
+    totals, balance, issues, warnings }
+    rcsLeg.mediaSurcharge is the carrier's surcharge on media over 5 MB,
+    already inside rcsLeg.cost; a message over 100 MB adds a MEDIA_TOO_LARGE
+    issue.
+
+  capabilities(agent_id, phone_numbers, options) -> Result<SignalHouseResponse>
+    POST /rcs/capabilities. Report which numbers (up to 500) can receive RCS.
+    Required: agent_id, phone_numbers
+    Returns: { results: [{ phoneNumber, capability }] }, capability being
+    ENABLED, UNREACHABLE or UNKNOWN
+
+  get(message_id, options) -> Result<SignalHouseResponse>
+    GET /message/:messageId. Get one message; the same route as
+    client.messages.get_message. Required: message_id
+
+  list(ListRcsMessagesParams { group_id, from, to, agent_id, status, page,
+      limit, template_id, template_version, bulk_id, fallback_reason,
+      billing_class, delivered_channel, is_test },
+      options) -> Result<SignalHouseResponse>
+    GET /message with messageType=RCS. agent_id is sent as registrationId,
+    from as startDate and to as endDate. A fallback leg is an SMS or MMS
+    message: read it with client.messages.get_message and the parent's
+    fallbackMessageId.
+    Required: group_id, from, to
+
+  Set RequestOptions.idempotency_key on send to make a retry safe (see
+  IDEMPOTENT REQUESTS).
 
 
 USERS  (client.users)
@@ -1168,7 +1249,7 @@ to every message from it, counted in segments and in the estimate.
 
 GET /registration accepts groupId, subgroupId, region, type, kind, status,
 parentRegistrationId, phoneNumber (filter to registrations holding this phone
-number), brandId, campaignId (RCS agents linked to that 10DLC brand or
+number), brandId, campaignId (RCS agents linked to that brand or
 campaign), sortBy (createdAt (default), subgroupId, registrationId, region or
 status), sortOrder (asc or desc (default)), page and limit (max 100) and returns
 {data,totalCount,page,limit}.
@@ -1233,20 +1314,18 @@ shortCode and p2p; [] matches nothing and omitting both keeps the existing scope
 Example:
 [{"region":"US","channels":["tenDLC"],"brandId":["BUS1"]},
  {"region":"GB","channels":["virtualLongCode"],"phoneNumber":["447400123456"]}]
-GET /message always accepts them; the analytics and DNC reads accept them only
-where the environment serves hourly analytics and reject them with a 400 elsewhere.
+GET /message always accepts them, as do the analytics and DNC reads.
 
 get_analytics, get_analytics_detail, get_analytics_throughput and
 get_dnc_analytics accept registration_id (a single id or a comma-separated list,
-like campaign_id): filter to traffic attributed to these registrations (hourly
-analytics only; a 400 while hourly reads are off). Except on
+like campaign_id): filter to traffic attributed to these registrations. Except on
 get_analytics_throughput, which has no phoneNumber filter, a phoneNumber filter
 takes precedence. get_phone_numbers accepts a single registration_id to list the
 numbers provisioned under that registration.
 
 get_analytics_by_subgroup, get_analytics_by_error_code and get_dnc_records accept
-registration_id the same way, with the same hourly-only rule and precedence.
-get_messages accepts registration_id in every environment: it filters to messages
+registration_id the same way, with the same precedence.
+get_messages accepts registration_id: it filters to messages
 attributed to those registrations, and a phone_number filter narrows further. Every
 method returns 400 when registration_id is combined with campaign_id.
 

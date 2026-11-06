@@ -1,8 +1,10 @@
 //! Request-contract coverage for RCS agents and the registration draft methods.
 //! Run from sdks/rust: `cargo test` and `cargo test --features admin`.
 use serde_json::{json, Value};
+use signalhouse_sms::domains::messages::GetMessagesParams;
 use signalhouse_sms::domains::rcs::{
-    CreateRcsAgentParams, ListRcsAgentsParams, UpdateRcsAgentParams,
+    CreateRcsAgentParams, EstimateRcsMessageParams, ListRcsAgentsParams, ListRcsMessagesParams,
+    SendRcsMessageParams, UpdateRcsAgentParams,
 };
 use signalhouse_sms::domains::registrations::GetRegistrationsParams;
 use signalhouse_sms::{
@@ -306,4 +308,250 @@ async fn missing_inputs_fail_before_transport() {
         registrations.validate_registration("", None).await
     ));
     assert!(rejected(registrations.submit_registration("", None).await));
+}
+
+#[tokio::test]
+async fn send_posts_the_given_fields() {
+    let recipients = [json!({ "phoneNumber": "+15125550199", "variables": { "name": "Ada" } })];
+    let content = json!({ "blocks": [] });
+    let fallback = json!({ "mode": "auto", "content": { "text": "Hi" } });
+    let options = RequestOptions {
+        idempotency_key: Some("k1".into()),
+        ..Default::default()
+    };
+    let wire = capture!(client => client.rcs.messages.send(
+        SendRcsMessageParams {
+            agent_id: AGENT,
+            recipients: &recipients,
+            content: Some(&content),
+            content_format: Some("content.v1"),
+            traffic_type: Some("TRANSACTION"),
+            ttl_seconds: Some(900),
+            fallback: Some(&fallback),
+            status_callback_url: Some("https://example.com/cb"),
+            enable_shortlink: Some(false),
+            is_test: Some(true),
+            simulate: Some("delivered"),
+            ..Default::default()
+        },
+        Some(&options),
+    ));
+    assert_eq!(request_line(&wire), "POST /message/rcs");
+    assert!(wire.to_lowercase().contains("idempotency-key: k1"));
+    assert_eq!(
+        body(&wire),
+        json!({
+            "agentId": AGENT, "recipients": recipients, "content": content, "contentFormat": "content.v1",
+            "trafficType": "TRANSACTION", "ttlSeconds": 900, "fallback": fallback,
+            "statusCallbackUrl": "https://example.com/cb", "enableShortlink": false, "isTest": true,
+            "simulate": "delivered",
+        })
+    );
+}
+
+#[tokio::test]
+async fn validate_posts_the_send_body() {
+    let recipients = [json!({ "phoneNumber": "+15125550199" })];
+    let wire = capture!(client => client.rcs.messages.validate(
+        SendRcsMessageParams {
+            agent_id: AGENT,
+            recipients: &recipients,
+            template_id: Some("T1"),
+            template_version: Some(2),
+            expire_time: Some("2026-11-05T00:00:00Z"),
+            ..Default::default()
+        },
+        None,
+    ));
+    assert_eq!(request_line(&wire), "POST /message/rcs/validate");
+    assert_eq!(
+        body(&wire),
+        json!({
+            "agentId": AGENT, "recipients": recipients, "templateId": "T1", "templateVersion": 2,
+            "expireTime": "2026-11-05T00:00:00Z",
+        })
+    );
+}
+
+#[tokio::test]
+async fn estimate_adds_the_channel() {
+    let fallback = json!({ "mode": "rcs_only" });
+    let wire = capture!(client => client.rcs.messages.estimate(
+        EstimateRcsMessageParams {
+            agent_id: AGENT,
+            recipient_count: Some(500),
+            template_id: Some("T1"),
+            template_version: Some(2),
+            traffic_type: Some("PROMOTION"),
+            fallback: Some(&fallback),
+            ..Default::default()
+        },
+        None,
+    ));
+    assert_eq!(request_line(&wire), "POST /message/estimate");
+    assert_eq!(
+        body(&wire),
+        json!({
+            "channel": "rcs", "agentId": AGENT, "recipientCount": 500, "templateId": "T1",
+            "templateVersion": 2, "trafficType": "PROMOTION", "fallback": fallback,
+        })
+    );
+}
+
+#[tokio::test]
+async fn capabilities_posts_the_numbers() {
+    let wire = capture!(client => client.rcs.messages.capabilities(AGENT, &["+15125550199"], None));
+    assert_eq!(request_line(&wire), "POST /rcs/capabilities");
+    assert_eq!(
+        body(&wire),
+        json!({ "agentId": AGENT, "phoneNumbers": ["+15125550199"] })
+    );
+}
+
+#[tokio::test]
+async fn get_and_get_message_address_the_message() {
+    let wire = capture!(client => client.rcs.messages.get("a/1", None));
+    assert_eq!(request_line(&wire), "GET /message/a%2F1");
+    assert_eq!(raw_body(&wire), "");
+
+    let wire = capture!(client => client.messages.get_message("a/1", None));
+    assert_eq!(request_line(&wire), "GET /message/a%2F1");
+    assert_eq!(raw_body(&wire), "");
+}
+
+#[tokio::test]
+async fn list_maps_the_filters_and_adds_the_type() {
+    let wire = capture!(client => client.rcs.messages.list(
+        ListRcsMessagesParams {
+            agent_id: Some(AGENT),
+            from: "2026-11-01",
+            to: "2026-11-02",
+            group_id: "G1",
+            status: Some("READ"),
+            page: Some(2),
+            limit: Some(50),
+            template_id: Some("T1"),
+            template_version: Some(3),
+            bulk_id: Some("B1"),
+            fallback_reason: Some("NOT_CAPABLE"),
+            billing_class: Some("RICH_MEDIA"),
+            delivered_channel: Some("sms"),
+            is_test: Some(false),
+        },
+        None,
+    ));
+    assert_eq!(
+        request_line(&wire),
+        format!(
+            "GET /message?registrationId={AGENT}&startDate=2026-11-01&endDate=2026-11-02&groupId=G1\
+             &status=READ&page=2&limit=50&templateId=T1&templateVersion=3&bulkId=B1\
+             &fallbackReason=NOT_CAPABLE&billingClass=RICH_MEDIA&deliveredChannel=sms&isTest=false\
+             &messageType=RCS"
+        )
+    );
+
+    let client = offline();
+    for (field, params) in [
+        (
+            "groupId",
+            ListRcsMessagesParams {
+                agent_id: Some(AGENT),
+                from: "2026-11-01",
+                to: "2026-11-02",
+                ..Default::default()
+            },
+        ),
+        (
+            "from",
+            ListRcsMessagesParams {
+                group_id: "G1",
+                to: "2026-11-02",
+                ..Default::default()
+            },
+        ),
+        (
+            "to",
+            ListRcsMessagesParams {
+                group_id: "G1",
+                from: "2026-11-01",
+                ..Default::default()
+            },
+        ),
+    ] {
+        let result = client.rcs.messages.list(params, None).await;
+        assert!(matches!(result, Err(SignalHouseError::Validation(name)) if name == field));
+    }
+}
+
+#[tokio::test]
+async fn get_messages_forwards_the_rcs_filters() {
+    let wire = capture!(client => client.messages.get_messages(
+        GetMessagesParams {
+            group_id: Some("G1"),
+            start_date: Some("2026-11-01"),
+            end_date: Some("2026-11-02"),
+            template_id: Some("T1"),
+            template_version: Some(3),
+            bulk_id: Some("B1"),
+            fallback_reason: Some("TTL_EXPIRED"),
+            billing_class: Some("RICH"),
+            delivered_channel: Some("sms"),
+            is_test: Some(false),
+            ..Default::default()
+        },
+        None,
+    ));
+    assert_eq!(
+        request_line(&wire),
+        "GET /message?groupId=G1&startDate=2026-11-01&endDate=2026-11-02&templateId=T1\
+         &templateVersion=3&bulkId=B1&fallbackReason=TTL_EXPIRED&billingClass=RICH\
+         &deliveredChannel=sms&isTest=false"
+    );
+}
+
+#[tokio::test]
+async fn missing_message_inputs_fail_before_transport() {
+    let client = offline();
+    let messages = &client.rcs.messages;
+    let recipients = [json!({ "phoneNumber": "+15125550199" })];
+    assert!(rejected(
+        messages
+            .send(
+                SendRcsMessageParams {
+                    recipients: &recipients,
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+    ));
+    assert!(rejected(
+        messages
+            .send(
+                SendRcsMessageParams {
+                    agent_id: AGENT,
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+    ));
+    assert!(rejected(
+        messages
+            .validate(
+                SendRcsMessageParams {
+                    agent_id: AGENT,
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+    ));
+    assert!(rejected(messages.estimate(Default::default(), None).await));
+    assert!(rejected(
+        messages.capabilities("", &["+15125550199"], None).await
+    ));
+    assert!(rejected(messages.capabilities(AGENT, &[], None).await));
+    assert!(rejected(messages.get("", None).await));
+    assert!(rejected(client.messages.get_message("", None).await));
 }

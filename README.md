@@ -86,7 +86,7 @@ again. Keys are scoped to the authenticated user and kept for 24 hours.
 | `messages` | Send SMS/MMS, message logs, analytics |
 | `notifications` | In-app notifications |
 | `numbers` | Phone number purchase, assignment, porting |
-| `rcs` | RCS agents (`rcs.agents`, `/rcs/agent`): drafts, validate, submit, archive, logo/hero upload |
+| `rcs` | RCS agents (`rcs.agents`, `/rcs/agent`): drafts, validate, submit, archive, logo/hero upload. RCS messages (`rcs.messages`): send, validate, estimate, capability check, read |
 | `shortlinks` | URL shortener |
 | `subgroups` | Subgroup management |
 | `subscriptions` | Subscription plans and billing |

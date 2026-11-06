@@ -12,9 +12,9 @@ use crate::response::SignalHouseResponse;
 /// Parameters for [`RcsAgentsDomain::create`]. Unset fields are left out of the body.
 #[derive(Debug, Default)]
 pub struct CreateRcsAgentParams<'a> {
-    /// The 10DLC brand: carrier brand ID, provisional UUID or `_id`. Required.
+    /// The brand: carrier brand ID, provisional UUID or `_id`. Required.
     pub brand_id: &'a str,
-    /// A 10DLC campaign of that brand (campaign ID or `_id`); required before submit.
+    /// A campaign of that brand (campaign ID or `_id`); required before submit.
     pub campaign_id: Option<&'a str>,
     /// The profile: `{ name, description, color, logoUrl, heroUrl, phone, website, email,
     /// phoneLabel, websiteLabel, emailLabel, privacyPolicyUrl, termsUrl }`. The labels are the
@@ -49,9 +49,9 @@ pub struct ListRcsAgentsParams<'a> {
     /// One status or a comma-separated list from `DRAFT`, `PENDING_REVIEW`, `REJECTED`,
     /// `AGENT_CREATING` and `ARCHIVED`.
     pub status: Option<&'a str>,
-    /// Agents linked to this 10DLC brand (carrier brand ID, provisional UUID or `_id`).
+    /// Agents linked to this brand (carrier brand ID, provisional UUID or `_id`).
     pub brand_id: Option<&'a str>,
-    /// Agents linked to this 10DLC campaign (campaign ID or `_id`).
+    /// Agents linked to this campaign (campaign ID or `_id`).
     pub campaign_id: Option<&'a str>,
     /// Defaults to 1.
     pub page: Option<u32>,
@@ -64,7 +64,7 @@ pub struct ListRcsAgentsParams<'a> {
 pub struct UpdateRcsAgentParams<'a> {
     /// The agent ID (e.g. `RCSA7K2M1QZ8RP`). Required.
     pub agent_id: &'a str,
-    /// Relink to another 10DLC brand of the same subgroup.
+    /// Relink to another brand of the same subgroup.
     pub brand_id: Option<&'a str>,
     /// `None` leaves the link unchanged; `Some(Some(id))` links or relinks; `Some(None)` sends
     /// `null` to unlink the campaign.
@@ -85,27 +85,126 @@ pub struct UpdateRcsAgentParams<'a> {
     pub testers: Option<&'a [&'a str]>,
 }
 
+/// Parameters for [`RcsMessagesDomain::send`] and [`RcsMessagesDomain::validate`]. Unset fields are
+/// left out of the body.
+#[derive(Debug, Default)]
+pub struct SendRcsMessageParams<'a> {
+    /// The agent that sends (`RCSA…`). Required.
+    pub agent_id: &'a str,
+    /// Up to 100 recipients, each `{ phoneNumber, variables?, clientMessageId?, metadata? }`. Required.
+    pub recipients: &'a [Value],
+    /// A template to send; exactly one of `template_id` or `content`.
+    pub template_id: Option<&'a str>,
+    /// A published version of `template_id`.
+    pub template_version: Option<u32>,
+    /// Inline content; exactly one of `template_id` or `content`.
+    pub content: Option<&'a Value>,
+    /// `content.v1` (default) or `google.rcs`.
+    pub content_format: Option<&'a str>,
+    /// `AUTHENTICATION`, `TRANSACTION`, `SERVICEREQUEST`, `ACKNOWLEDGEMENT` or `PROMOTION`; required
+    /// on a `MULTI_USE` agent when the template sets none.
+    pub traffic_type: Option<&'a str>,
+    /// Seconds the RCS message may wait for delivery; at most one of `ttl_seconds` or `expire_time`.
+    pub ttl_seconds: Option<u32>,
+    /// ISO-8601 time the RCS message expires.
+    pub expire_time: Option<&'a str>,
+    /// `{ mode? (auto, rcs_only, sms_only), channel? (auto, sms, mms), from?, content?: { text,
+    /// mediaUrls? }, validitySeconds? }`. `from` is a Ready number on the agent's linked Active
+    /// campaign. If `content` is omitted the template's fallback, else a generated one, is used.
+    pub fallback: Option<&'a Value>,
+    /// URL that receives this message's status events.
+    pub status_callback_url: Option<&'a str>,
+    /// Shorten the links in the message.
+    pub enable_shortlink: Option<bool>,
+    /// Send as a test; approved testers only.
+    pub is_test: Option<bool>,
+    /// `not_capable`, `ttl_expired`, `delivered` or `read`; approved testers only.
+    pub simulate: Option<&'a str>,
+}
+
+/// Parameters for [`RcsMessagesDomain::estimate`]. Unset fields are left out of the body.
+#[derive(Debug, Default)]
+pub struct EstimateRcsMessageParams<'a> {
+    /// The agent that would send (`RCSA…`). Required.
+    pub agent_id: &'a str,
+    /// Named recipients; exactly one of `recipients` or `recipient_count`.
+    pub recipients: Option<&'a [Value]>,
+    /// A recipient count; carriers are unknown, so the default fees apply.
+    pub recipient_count: Option<u32>,
+    /// A template to price; exactly one of `template_id` or `content`.
+    pub template_id: Option<&'a str>,
+    /// A published version of `template_id`.
+    pub template_version: Option<u32>,
+    /// Inline content; exactly one of `template_id` or `content`.
+    pub content: Option<&'a Value>,
+    /// `content.v1` (default) or `google.rcs`.
+    pub content_format: Option<&'a str>,
+    /// As on [`SendRcsMessageParams`].
+    pub traffic_type: Option<&'a str>,
+    /// Seconds the RCS message may wait for delivery; at most one of `ttl_seconds` or `expire_time`.
+    pub ttl_seconds: Option<u32>,
+    /// ISO-8601 time the RCS message expires.
+    pub expire_time: Option<&'a str>,
+    /// As on [`SendRcsMessageParams`], but its `from` is optional: with none, the leg is priced on
+    /// the channel of the agent's linked campaign.
+    pub fallback: Option<&'a Value>,
+}
+
+/// Filters for [`RcsMessagesDomain::list`].
+#[derive(Debug, Default)]
+pub struct ListRcsMessagesParams<'a> {
+    /// Messages this agent sent; sent as `registrationId`.
+    pub agent_id: Option<&'a str>,
+    /// ISO-8601 date or timestamp; sent as `startDate`. Required.
+    pub from: &'a str,
+    /// ISO-8601 date or timestamp; sent as `endDate`. Required.
+    pub to: &'a str,
+    /// The group whose messages to list. Required.
+    pub group_id: &'a str,
+    /// `ENQUEUED`, `DEQUEUED`, `SENT`, `FAILED`, `DELIVERED`, `READ`, `EXPIRED`, `FALLBACK` or
+    /// `BLOCKED`.
+    pub status: Option<&'a str>,
+    pub page: Option<u32>,
+    pub limit: Option<u32>,
+    pub template_id: Option<&'a str>,
+    pub template_version: Option<u32>,
+    /// The messages of one send.
+    pub bulk_id: Option<&'a str>,
+    /// `NOT_CAPABLE`, `CARRIER_NOT_LAUNCHED`, `TTL_EXPIRED`, `RCS_ERROR`, `PROVIDER_ERROR` or
+    /// `SMS_ONLY`.
+    pub fallback_reason: Option<&'a str>,
+    /// `RICH` or `RICH_MEDIA`.
+    pub billing_class: Option<&'a str>,
+    /// The channel that delivered the message: `rcs`, `sms` or `mms`.
+    pub delivered_channel: Option<&'a str>,
+    /// `true` for test messages only, `false` to leave them out.
+    pub is_test: Option<bool>,
+}
+
 /// RCS domain -- RCS (Google RBM) resources. Templates for RCS live under `client.templates`.
 ///
 /// Sub-resources:
 /// * `client.rcs.agents` — RCS agents under `/rcs/agent`.
+/// * `client.rcs.messages` — RCS messages: send, validate, estimate, capabilities, get and list.
 pub struct RcsDomain {
     pub agents: RcsAgentsDomain,
+    pub messages: RcsMessagesDomain,
 }
 
 impl RcsDomain {
     pub(crate) fn new(http: Arc<HttpClient>) -> Self {
         Self {
-            agents: RcsAgentsDomain::new(http),
+            agents: RcsAgentsDomain::new(http.clone()),
+            messages: RcsMessagesDomain::new(http),
         }
     }
 }
 
-/// RCS agents under `/rcs/agent`. An agent links one 10DLC brand and one 10DLC campaign: the
-/// campaign's numbers are the SMS fallback, and the brand and campaign supply the company identity
-/// and consent text for the carrier launch. One brand or campaign can serve many agents. An agent
-/// is a registration (type `RCS_AGENT`, id `RCSA…`), so the registrations methods read and edit
-/// the same record. 404 while the environment's RCS switch is off; 400 while the group's
+/// RCS agents under `/rcs/agent`. An agent links one brand and one campaign, of any registration
+/// type: the campaign's numbers are the SMS fallback, and the brand and campaign supply the company
+/// identity and consent text for the carrier launch. One brand or campaign can serve many agents.
+/// An agent is a registration (type `RCS_AGENT`, id `RCSA…`), so the registrations methods read and
+/// edit the same record. 404 while the environment's RCS switch is off; 400 while the group's
 /// `rcsEnabled` flag is off.
 pub struct RcsAgentsDomain {
     http: Arc<HttpClient>,
@@ -116,7 +215,7 @@ impl RcsAgentsDomain {
         Self { http }
     }
 
-    /// Create an agent draft on a 10DLC brand, optionally with its campaign (HTTP 201, status
+    /// Create an agent draft on a brand, optionally with its campaign (HTTP 201, status
     /// `DRAFT`). The agent's subgroup is the brand's. Set `RequestOptions.idempotency_key` to make
     /// a retry safe.
     ///
@@ -223,6 +322,7 @@ impl RcsAgentsDomain {
     /// partner. Allowed from `IN_TESTING`, `REJECTED` and `CARRIER_REJECTED` (409 otherwise); a
     /// failed requirement is a 400 whose details carry `{ code: "REGISTRATION_INCOMPLETE", errors,
     /// warnings }`. The agent is a registration, so this is the registration's launch route.
+    /// The request charges the agent's launch fees: a wallet that cannot cover them gets a 402, and the agent stays where it is. The agent's launchFees quotes what the next request charges.
     ///
     /// **POST** `/registration/:agentId/launch`
     pub async fn launch(
@@ -295,6 +395,160 @@ impl RcsAgentsDomain {
     }
 }
 
+/// RCS messages. Sends go through an agent to `POST /message/rcs`. A message is a Message record
+/// (`messageType` `RCS`), so `client.messages` reads the same record. 404 while the environment's
+/// RCS switch is off; 403 while the group's `rcsEnabled` flag is off; 409 while the agent cannot
+/// send yet.
+pub struct RcsMessagesDomain {
+    http: Arc<HttpClient>,
+}
+
+impl RcsMessagesDomain {
+    pub(crate) fn new(http: Arc<HttpClient>) -> Self {
+        Self { http }
+    }
+
+    /// Send an RCS message to up to 100 recipients (HTTP 201) and return `{ requested, enqueued,
+    /// failed, bulkId, messages }`. A check that blocks one recipient writes a
+    /// `BLOCKED` message for it and the rest still send; its row carries `blockReason`, `reason`
+    /// and `issues`. An archived template answers 409 `TEMPLATE_ARCHIVED`. Set
+    /// `RequestOptions.idempotency_key` to make a retry safe.
+    ///
+    /// **POST** `/message/rcs`
+    pub async fn send(
+        &self,
+        params: SendRcsMessageParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let payload = send_body(&params)?;
+        self.http
+            .request_json("/message/rcs", Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// Run a send's checks without writing anything or holding funds. Returns `{ valid, errors,
+    /// warnings, billingClass, segments, estimatedCostMicros, unsupportedFiles, recipients }`.
+    /// `valid` is true only with no errors; each blocked recipient adds an error and carries
+    /// `blockReason`, `reason` and `issues`.
+    ///
+    /// **POST** `/message/rcs/validate`
+    pub async fn validate(
+        &self,
+        params: SendRcsMessageParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let payload = send_body(&params)?;
+        self.http
+            .request_json(
+                "/message/rcs/validate",
+                Method::POST,
+                Some(&payload),
+                options,
+            )
+            .await
+    }
+
+    /// Price an RCS draft in microdollars and return `{ billingClass, segments, recipientCount,
+    /// rcsLeg, fallbackLeg, totals, balance, issues, warnings }`, `issues` listing what would block the
+    /// send and `warnings` what an iPhone draws differently;
+    /// no charge or send. `channel` `rcs` is added to the
+    /// body. The fallback's `from` is optional for an estimate: with none, the fallback leg is
+    /// priced on the channel of the agent's linked campaign. `rcsLeg.mediaSurcharge` is the
+    /// carrier's surcharge on media over 5 MB, already inside `rcsLeg.cost`; a message over 100 MB
+    /// adds a `MEDIA_TOO_LARGE` issue.
+    ///
+    /// **POST** `/message/estimate`
+    pub async fn estimate(
+        &self,
+        params: EstimateRcsMessageParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let payload = estimate_body(&params)?;
+        self.http
+            .request_json("/message/estimate", Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// Report which numbers (up to 500, 10-15 digits, with or without the `+`) can receive RCS from
+    /// an agent as `{ results: [{ phoneNumber, capability }] }`, `capability` being `ENABLED`,
+    /// `UNREACHABLE` or `UNKNOWN`.
+    ///
+    /// **POST** `/rcs/capabilities`
+    pub async fn capabilities(
+        &self,
+        agent_id: &str,
+        phone_numbers: &[&str],
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("agentId", Some(agent_id))])?;
+        if phone_numbers.is_empty() {
+            return Err(SignalHouseError::Validation("phoneNumbers".to_string()));
+        }
+        let payload = json!({ "agentId": agent_id, "phoneNumbers": phone_numbers });
+        self.http
+            .request_json("/rcs/capabilities", Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// Get one message by its ID; an unknown ID is a 404. The same route as
+    /// `client.messages.get_message`.
+    ///
+    /// **GET** `/message/:messageId`
+    pub async fn get(
+        &self,
+        message_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("messageId", Some(message_id))])?;
+        let path = format!("/message/{}", urlencoding::encode(message_id));
+        self.http
+            .request_json(&path, Method::GET, None, options)
+            .await
+    }
+
+    /// List RCS messages. `messageType=RCS` is added to the query. A fallback leg is an SMS or MMS
+    /// message: read it with `client.messages.get_message` and the parent's `fallbackMessageId`.
+    ///
+    /// **GET** `/message`
+    pub async fn list(
+        &self,
+        params: ListRcsMessagesParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("groupId", Some(params.group_id)),
+            ("from", Some(params.from)),
+            ("to", Some(params.to)),
+        ])?;
+        let qs = HttpClient::get_query_string(&[
+            ("registrationId", params.agent_id.map(String::from)),
+            ("startDate", Some(params.from.to_string())),
+            ("endDate", Some(params.to.to_string())),
+            ("groupId", Some(params.group_id.to_string())),
+            ("status", params.status.map(String::from)),
+            ("page", params.page.map(|n| n.to_string())),
+            ("limit", params.limit.map(|n| n.to_string())),
+            ("templateId", params.template_id.map(String::from)),
+            (
+                "templateVersion",
+                params.template_version.map(|n| n.to_string()),
+            ),
+            ("bulkId", params.bulk_id.map(String::from)),
+            ("fallbackReason", params.fallback_reason.map(String::from)),
+            ("billingClass", params.billing_class.map(String::from)),
+            (
+                "deliveredChannel",
+                params.delivered_channel.map(String::from),
+            ),
+            ("isTest", params.is_test.map(|flag| flag.to_string())),
+            ("messageType", Some("RCS".to_string())),
+        ]);
+        self.http
+            .request_json(&format!("/message{}", qs), Method::GET, None, options)
+            .await
+    }
+}
+
 // -- helpers ------------------------------------------------------------------
 
 /// Build the encoded path of one agent.
@@ -342,6 +596,49 @@ fn update_body(params: &UpdateRcsAgentParams<'_>) -> Value {
     set(&mut body, "excludedCarriers", params.excluded_carriers);
     set(&mut body, "testers", params.testers);
     Value::Object(body)
+}
+
+/// Validate a send and build its body; unset fields are dropped.
+fn send_body(params: &SendRcsMessageParams<'_>) -> Result<Value, SignalHouseError> {
+    HttpClient::require(&[("agentId", Some(params.agent_id))])?;
+    if params.recipients.is_empty() {
+        return Err(SignalHouseError::Validation("recipients".to_string()));
+    }
+    let mut body = Map::new();
+    set(&mut body, "agentId", Some(params.agent_id));
+    set(&mut body, "recipients", Some(params.recipients));
+    set(&mut body, "templateId", params.template_id);
+    set(&mut body, "templateVersion", params.template_version);
+    set(&mut body, "content", params.content);
+    set(&mut body, "contentFormat", params.content_format);
+    set(&mut body, "trafficType", params.traffic_type);
+    set(&mut body, "ttlSeconds", params.ttl_seconds);
+    set(&mut body, "expireTime", params.expire_time);
+    set(&mut body, "fallback", params.fallback);
+    set(&mut body, "statusCallbackUrl", params.status_callback_url);
+    set(&mut body, "enableShortlink", params.enable_shortlink);
+    set(&mut body, "isTest", params.is_test);
+    set(&mut body, "simulate", params.simulate);
+    Ok(Value::Object(body))
+}
+
+/// Validate an estimate and build its body with `channel` `rcs`; unset fields are dropped.
+fn estimate_body(params: &EstimateRcsMessageParams<'_>) -> Result<Value, SignalHouseError> {
+    HttpClient::require(&[("agentId", Some(params.agent_id))])?;
+    let mut body = Map::new();
+    set(&mut body, "channel", Some("rcs"));
+    set(&mut body, "agentId", Some(params.agent_id));
+    set(&mut body, "recipients", params.recipients);
+    set(&mut body, "recipientCount", params.recipient_count);
+    set(&mut body, "templateId", params.template_id);
+    set(&mut body, "templateVersion", params.template_version);
+    set(&mut body, "content", params.content);
+    set(&mut body, "contentFormat", params.content_format);
+    set(&mut body, "trafficType", params.traffic_type);
+    set(&mut body, "ttlSeconds", params.ttl_seconds);
+    set(&mut body, "expireTime", params.expire_time);
+    set(&mut body, "fallback", params.fallback);
+    Ok(Value::Object(body))
 }
 
 /// Build the multipart `kind` + `file` upload form. A missing file name is sent as `"file"` so the

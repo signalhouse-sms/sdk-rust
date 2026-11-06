@@ -54,7 +54,9 @@ impl TemplatesDomain {
         Self { http }
     }
 
-    /// Create a template with draft version 1; returns `{ head, version }` (HTTP 201).
+    /// Create a template with draft version 1; returns `{ head, version, validation }` (HTTP 201).
+    /// `validation` is `{ valid, errors, warnings }`, or null when the checks could not run; the
+    /// draft saves even when it lists errors.
     ///
     /// **POST** `/template`
     pub async fn create(
@@ -110,7 +112,9 @@ impl TemplatesDomain {
             .await
     }
 
-    /// Edit the draft (creating one from the published version if needed); returns `{ head, version }`.
+    /// Edit the draft (creating one from the published version if needed); returns `{ head,
+    /// version, validation }`. `validation` is `{ valid, errors, warnings }`, or null when the
+    /// checks could not run; the draft saves even when it lists errors.
     ///
     /// **PUT** `/template/:templateId`
     pub async fn update(
@@ -130,7 +134,7 @@ impl TemplatesDomain {
             .await
     }
 
-    /// Publish the current draft; returns `{ head, version }`. No draft is a 409 `NO_DRAFT`, and a
+    /// Publish the current draft; returns `{ head, version, warnings }`. No draft is a 409 `NO_DRAFT`, and a
     /// draft that changed while it was being published is a 409 `DRAFT_CHANGED` (publish again);
     /// an incomplete draft is a 400 `TEMPLATE_INVALID` carrying `errors` and `warnings`.
     ///

@@ -33,9 +33,9 @@ pub struct GetRegistrationsParams<'a> {
     pub parent_registration_id: Option<&'a str>,
     /// Filter to registrations holding this phone number.
     pub phone_number: Option<&'a str>,
-    /// RCS agents only: agents linked to this 10DLC brand (carrier ID, provisional UUID or `_id`).
+    /// RCS agents only: agents linked to this brand (carrier ID, provisional UUID or `_id`).
     pub brand_id: Option<&'a str>,
-    /// RCS agents only: agents linked to this 10DLC campaign (campaign ID or `_id`).
+    /// RCS agents only: agents linked to this campaign (campaign ID or `_id`).
     pub campaign_id: Option<&'a str>,
     /// One of `createdAt` (default), `subgroupId`, `registrationId`, `region` or `status`.
     pub sort_by: Option<&'a str>,
@@ -255,6 +255,7 @@ impl RegistrationsDomain {
     /// agent ready for testing, after a Signal House rejection, or after every carrier refused an
     /// earlier launch (409 otherwise); a failed requirement is a 400 whose details carry
     /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`.
+    /// An RCS agent's launch request charges its launch fees: a wallet that cannot cover them gets a 402, and nothing changes.
     ///
     /// **POST** `/registration/:registrationId/launch`
     pub async fn launch_registration(
