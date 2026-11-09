@@ -89,6 +89,47 @@ impl NumbersDomain {
         current_toll_free_carrier: Option<bool>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
+        self.get_phone_numbers_with_released_filter(
+            phone_number,
+            campaign_id,
+            registration_id,
+            brand_id,
+            subgroup_id,
+            group_id,
+            page,
+            limit,
+            current_toll_free_carrier,
+            None,
+            options,
+        )
+        .await
+    }
+
+    /// Get a list of owned phone numbers with optional filters, including the current toll-free carrier and
+    /// released filters.
+    ///
+    /// **GET** `/number?...`
+    ///
+    /// `current_toll_free_carrier`: with `subgroup_id` or `group_id`, `Some(true)` returns only the toll-free numbers
+    /// a new toll-free campaign in that group can use (those on the group's current toll-free carrier).
+    ///
+    /// `released`: with `subgroup_id` or `group_id`, `Some(true)` returns only its released numbers (status RELEASED)
+    /// instead of its active ones.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_phone_numbers_with_released_filter(
+        &self,
+        phone_number: Option<&str>,
+        campaign_id: Option<&str>,
+        registration_id: Option<&str>,
+        brand_id: Option<&str>,
+        subgroup_id: Option<&str>,
+        group_id: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        current_toll_free_carrier: Option<bool>,
+        released: Option<bool>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
         let qs = HttpClient::get_query_string(&[
             ("phoneNumber", phone_number.map(String::from)),
             ("campaignId", campaign_id.map(String::from)),
@@ -102,6 +143,7 @@ impl NumbersDomain {
                 "currentTollFreeCarrier",
                 current_toll_free_carrier.map(|c| c.to_string()),
             ),
+            ("released", released.map(|r| r.to_string())),
         ]);
         self.http
             .request_json(&format!("/number{}", qs), Method::GET, None, options)

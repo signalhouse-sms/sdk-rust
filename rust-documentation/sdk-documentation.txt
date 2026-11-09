@@ -530,6 +530,19 @@ NUMBERS  (client.numbers)
     toll-free carrier). registration_id: filter to numbers provisioned under
     this registration.
 
+  get_phone_numbers_with_released_filter(&self,
+      phone_number: Option<&str>, campaign_id: Option<&str>,
+      registration_id: Option<&str>, brand_id: Option<&str>,
+      subgroup_id: Option<&str>, group_id: Option<&str>,
+      page: Option<u32>, limit: Option<u32>,
+      current_toll_free_carrier: Option<bool>, released: Option<bool>,
+      options: Option<&RequestOptions>) -> Result<SignalHouseResponse>
+    List your phone numbers with filters (GET /number). Use it instead of
+    get_phone_numbers_on_current_toll_free_carrier to also send released:
+    with subgroup_id or group_id, Some(true) returns only its released
+    numbers (status RELEASED) instead of its active ones. current_toll_free_carrier
+    and registration_id behave as above.
+
   get_number_health(phone_number, options) -> Result<SignalHouseResponse>
     Get the health score, the same one the portal shows, (1–10) for an owned phone number.
     Returns sevenDay and thirtyDay breakdowns matching the portal.

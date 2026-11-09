@@ -791,6 +791,75 @@ async fn brand_and_number_lists_send_current_toll_free_carrier() {
     assert_eq!(target(&request.join().unwrap()), "/number?groupId=G1");
 }
 
+#[tokio::test]
+async fn number_list_sends_released() {
+    let (client, request) = capture_server();
+    client
+        .numbers
+        .get_phone_numbers_with_released_filter(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("G1"),
+            Some(1),
+            Some(25),
+            None,
+            Some(true),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        target(&request.join().unwrap()),
+        "/number?groupId=G1&page=1&limit=25&released=true"
+    );
+
+    let (client, request) = capture_server();
+    client
+        .numbers
+        .get_phone_numbers_with_released_filter(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("G1"),
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        target(&request.join().unwrap()),
+        "/number?groupId=G1&released=false"
+    );
+
+    let (client, request) = capture_server();
+    client
+        .numbers
+        .get_phone_numbers_with_released_filter(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("G1"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(target(&request.join().unwrap()), "/number?groupId=G1");
+}
+
 #[cfg(feature = "admin")]
 #[tokio::test]
 async fn staff_set_toll_free_provider_contract() {

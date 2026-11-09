@@ -232,6 +232,10 @@ pub struct UpsertAgentChannelSettingData {
     /// Words the transcriber is biased toward — names, jargon, unusual spellings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyterms: Option<Vec<String>>,
+    /// SMS channel only: the "a person will..." promises the agent may send on autopilot. Any
+    /// other promise is held for review. A non-empty list on webchat or voice is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_commitments: Option<Vec<AgentCommitment>>,
     /// Ambient audio bed played under the call; `None` = silence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_sound: Option<AgentBackgroundSound>,
@@ -334,6 +338,18 @@ pub struct ReleaseAgentReplyDraftData {
     /// omits the field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permanent: Option<bool>,
+}
+
+/// One kind of promise an SMS agent may make on a person's behalf. Serializes to camelCase.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCommitment {
+    /// One of `"confirm_booking"`, `"call_back"`, `"text_back"`, `"follow_up"`, `"hold_slot"`
+    /// or `"send_reminder"`, each listed at most once.
+    pub kind: String,
+    /// Optional note shown to staff (up to 200 characters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// An ambient audio bed played under a call. Presets come from a fixed set provided by
