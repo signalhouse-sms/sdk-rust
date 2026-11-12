@@ -444,7 +444,9 @@ impl MessagesDomain {
             .await
     }
 
-    /// Get one message of any type by its ID; an unknown ID is a 404.
+    /// Get one message of any type by its ID; an unknown ID is a 404. An outbound RCS message and its
+    /// fallback leg also carry `costBreakdown`, `{ legs: [{ messageId, channel, billed, billingClass, segments, baseMicros, carrierMicros, rated }] }`,
+    /// which is `null` when it cannot be computed.
     ///
     /// **GET** `/message/:id`
     pub async fn get_message(
@@ -456,6 +458,26 @@ impl MessagesDomain {
         let safe = urlencoding::encode(id);
         self.http
             .request_json(&format!("/message/{}", safe), Method::GET, None, options)
+            .await
+    }
+
+    /// Get the taps on one RCS message, oldest first; an unknown ID is a 404.
+    ///
+    /// **GET** `/message/:id/interactions`
+    pub async fn get_message_interactions(
+        &self,
+        id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("id", Some(id))])?;
+        let safe = urlencoding::encode(id);
+        self.http
+            .request_json(
+                &format!("/message/{}/interactions", safe),
+                Method::GET,
+                None,
+                options,
+            )
             .await
     }
 

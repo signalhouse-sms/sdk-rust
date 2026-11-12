@@ -46,6 +46,28 @@ impl WebhooksDomain {
             .await
     }
 
+    /// Get one RCS agent's `Agent` endpoints. The same read as `get_webhooks`, filtered by `agentId`.
+    ///
+    /// **GET** `/webhook?groupId=...&agentId=...`
+    pub async fn get_webhooks_by_agent(
+        &self,
+        group_id: Option<&str>,
+        agent_id: &str,
+        page: Option<u32>,
+        limit: Option<u32>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", group_id.map(String::from)),
+            ("agentId", Some(agent_id.to_string())),
+            ("page", page.map(|p| p.to_string())),
+            ("limit", limit.map(|l| l.to_string())),
+        ]);
+        self.http
+            .request_json(&format!("/webhook{}", qs), Method::GET, None, options)
+            .await
+    }
+
     /// Create a new webhook. The response includes a `signingSecret` (plaintext HMAC-SHA256 secret)
     /// used to sign every delivery to this endpoint via the X-SignalHouse-Signature header. It is
     /// returned exactly once, here — store it now, it is never exposed again by any read.
@@ -58,6 +80,10 @@ impl WebhooksDomain {
     /// `NUMBER_HEALTH_BELOW_THRESHOLD` and `CAMPAIGN_HEALTH_BELOW_THRESHOLD` each take `{ "threshold": n }`,
     /// the 7-day health score (1.5–10, in 0.5 steps) below which the event fires. A subscribed health event
     /// without a threshold is stored with the default, 6.
+    ///
+    /// `endpointType` in `webhook_data` is `Global`, `Number` or `Agent`. An `Agent` endpoint receives one RCS
+    /// agent's events only: it needs `agentId`, and may set `secondaryUrl`, which gets one try when every
+    /// attempt to `url` fails.
     ///
     /// **POST** `/webhook`
     pub async fn create_webhook(
@@ -79,6 +105,8 @@ impl WebhooksDomain {
     /// `eventSettings` in `update_data` changes per-event options by event name (`NUMBER_HEALTH_BELOW_THRESHOLD`,
     /// `CAMPAIGN_HEALTH_BELOW_THRESHOLD`, each `{ "threshold": n }`, 1.5–10 in 0.5 steps); events you omit keep
     /// their stored settings.
+    ///
+    /// `secondaryUrl` in `update_data` changes an `Agent` endpoint's secondary URL, and `null` clears it.
     ///
     /// **PUT** `/webhook/:id`
     pub async fn update_webhook(

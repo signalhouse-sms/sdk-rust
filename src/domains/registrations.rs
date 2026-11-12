@@ -11,6 +11,31 @@ use crate::response::SignalHouseResponse;
 #[cfg(feature = "admin")]
 use serde_json::json;
 
+/// What a launch request accepts, for [`RegistrationsDomain::launch_registration_acknowledging`] and
+/// `RcsAgentsDomain::launch_acknowledging`. Each `true` field is sent; neither sends no body.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LaunchAcknowledgements {
+    /// Accept the fees due; required when any are.
+    pub fees: bool,
+    /// Accept the protected health information (PHI) disclosure; required for a healthcare or
+    /// insurance brand.
+    pub phi: bool,
+}
+
+impl LaunchAcknowledgements {
+    /// The launch request body: the accepted acknowledgements, or `None` when there are none.
+    pub(crate) fn body(self) -> Option<Value> {
+        let mut body = serde_json::Map::new();
+        if self.fees {
+            body.insert("acknowledgeFees".into(), Value::Bool(true));
+        }
+        if self.phi {
+            body.insert("acknowledgePhi".into(), Value::Bool(true));
+        }
+        (!body.is_empty()).then_some(Value::Object(body))
+    }
+}
+
 /// Optional filters for [`RegistrationsDomain::get_registrations`].
 #[derive(Debug, Default)]
 pub struct GetRegistrationsParams<'a> {
@@ -255,7 +280,8 @@ impl RegistrationsDomain {
     /// agent ready for testing, after a Signal House rejection, or after every carrier refused an
     /// earlier launch (409 otherwise); a failed requirement is a 400 whose details carry
     /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`.
-    /// An RCS agent's launch request charges its launch fees: a wallet that cannot cover them gets a 402, and nothing changes.
+    /// An RCS agent's launch request charges its launch fees: a wallet that cannot cover them gets a 402, and nothing changes. When any fee is due the request must set the acknowledgement (see `launch_registration_acknowledging_fees`), or it gets a 400 with code FEE_ACKNOWLEDGEMENT_REQUIRED and nothing is held; a launch with nothing due needs no acknowledgement.
+    /// When the agent's brand vertical is healthcare or insurance, the launch needs the protected health information (PHI) disclosure acknowledged: use `launch_registration_acknowledging` with `phi` set, or the request gets a 400 REGISTRATION_INCOMPLETE whose errors name `consent.phiAcknowledgement`. The API records the acknowledgement as `consent.phiAcknowledgement { acknowledgedAt, acknowledgedBy }` from the caller; the client sends only the boolean, and an agent update cannot set it. Once recorded, a later launch request needs no new acknowledgement.
     ///
     /// **POST** `/registration/:registrationId/launch`
     pub async fn launch_registration(
@@ -270,6 +296,50 @@ impl RegistrationsDomain {
                 &format!("/registration/{}/launch", safe),
                 Method::POST,
                 None,
+                options,
+            )
+            .await
+    }
+
+    /// `launch_registration`, accepting the fees due. Required when any fee is due.
+    ///
+    /// **POST** `/registration/:registrationId/launch`
+    pub async fn launch_registration_acknowledging_fees(
+        &self,
+        registration_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        let safe = urlencoding::encode(registration_id);
+        let payload = serde_json::json!({ "acknowledgeFees": true });
+        self.http
+            .request_json(
+                &format!("/registration/{}/launch", safe),
+                Method::POST,
+                Some(&payload),
+                options,
+            )
+            .await
+    }
+
+    /// `launch_registration`, with what the request accepts: the fees due, and the PHI disclosure.
+    /// When the agent's brand vertical is healthcare or insurance, the launch needs the protected health information (PHI) disclosure acknowledged: set `phi`, or the request gets a 400 REGISTRATION_INCOMPLETE whose errors name `consent.phiAcknowledgement`. The API records the acknowledgement as `consent.phiAcknowledgement { acknowledgedAt, acknowledgedBy }` from the caller; the client sends only the boolean, and an agent update cannot set it. Once recorded, a later launch request needs no new acknowledgement.
+    ///
+    /// **POST** `/registration/:registrationId/launch`
+    pub async fn launch_registration_acknowledging(
+        &self,
+        registration_id: &str,
+        acknowledgements: LaunchAcknowledgements,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("registrationId", Some(registration_id))])?;
+        let safe = urlencoding::encode(registration_id);
+        let payload = acknowledgements.body();
+        self.http
+            .request_json(
+                &format!("/registration/{}/launch", safe),
+                Method::POST,
+                payload.as_ref(),
                 options,
             )
             .await
@@ -342,6 +412,29 @@ impl RegistrationsDomain {
         reason: Option<&str>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
+        self.review_registration_with_reasons(registration_id, action, reason, None, None, options)
+            .await
+    }
+
+    /// Approve or reject a registration, with the reason code and field-level reasons an RCS
+    /// agent's rejection takes.
+    ///
+    /// **POST** `/registration/:registrationId/review`
+    ///
+    /// `reason_code` is the rejection catalogue code, required to reject an RCS agent and refused
+    /// for any other type; the agent's `reason` is 10 to 256 characters. `rejection_reasons` is an
+    /// optional array of `{ field, code, reason, recommendedAction }`. Requires the `admin` crate
+    /// feature.
+    #[cfg(feature = "admin")]
+    pub async fn review_registration_with_reasons(
+        &self,
+        registration_id: &str,
+        action: &str,
+        reason: Option<&str>,
+        reason_code: Option<&str>,
+        rejection_reasons: Option<&Value>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
         HttpClient::require(&[
             ("registrationId", Some(registration_id)),
             ("action", Some(action)),
@@ -350,6 +443,12 @@ impl RegistrationsDomain {
         let mut body = json!({ "action": action });
         if let Some(reason) = reason {
             body["reason"] = json!(reason);
+        }
+        if let Some(reason_code) = reason_code {
+            body["reasonCode"] = json!(reason_code);
+        }
+        if let Some(rejection_reasons) = rejection_reasons {
+            body["rejectionReasons"] = rejection_reasons.clone();
         }
         self.http
             .request_json(

@@ -136,7 +136,10 @@ impl TemplatesDomain {
 
     /// Publish the current draft; returns `{ head, version, warnings }`. No draft is a 409 `NO_DRAFT`, and a
     /// draft that changed while it was being published is a 409 `DRAFT_CHANGED` (publish again);
-    /// an incomplete draft is a 400 `TEMPLATE_INVALID` carrying `errors` and `warnings`.
+    /// an incomplete draft is a 400 `TEMPLATE_INVALID` carrying `errors` and `warnings`. A block
+    /// whose text or image the Moderation API flags is an error with code `CONTENT_POLICY_FLAGGED`,
+    /// whose message names the category ("Content moderation flagged this text: spam"). The check
+    /// passes when the Moderation API fails.
     ///
     /// **POST** `/template/:templateId/publish`
     pub async fn publish(
@@ -202,7 +205,8 @@ impl TemplatesDomain {
     }
 
     /// Validate exactly one of `body` or a stored `version` without writing; returns `{ valid,
-    /// contentHash, validatorVersion, errors, warnings }`.
+    /// contentHash, validatorVersion, errors, warnings }`. The publish checks run,
+    /// `CONTENT_POLICY_FLAGGED` included; saving a draft does not run that check.
     ///
     /// **POST** `/template/:templateId/validate`
     ///

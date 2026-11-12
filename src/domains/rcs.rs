@@ -5,6 +5,7 @@ use reqwest::Method;
 use serde_json::{json, Map, Value};
 
 use crate::client::HttpClient;
+use crate::domains::registrations::LaunchAcknowledgements;
 use crate::error::SignalHouseError;
 use crate::request_options::RequestOptions;
 use crate::response::SignalHouseResponse;
@@ -30,7 +31,7 @@ pub struct CreateRcsAgentParams<'a> {
     pub contact: Option<&'a Value>,
     /// `OTP`, `TRANSACTIONAL`, `PROMOTIONAL` or `MULTI_USE`; required before submit.
     pub use_case: Option<&'a str>,
-    /// `NON_CONVERSATIONAL` (default) or `CONVERSATIONAL`; submit refuses `CONVERSATIONAL`.
+    /// `NON_CONVERSATIONAL` (default, per message) or `CONVERSATIONAL` (per interactive session).
     pub billing_category: Option<&'a str>,
     /// `{ mode (auto, rcs_only, sms_only, none), channel (auto, sms, mms), from }`, where `from` is
     /// a number on the linked campaign.
@@ -47,7 +48,7 @@ pub struct ListRcsAgentsParams<'a> {
     pub group_id: Option<&'a str>,
     pub subgroup_id: Option<&'a str>,
     /// One status or a comma-separated list from `DRAFT`, `PENDING_REVIEW`, `REJECTED`,
-    /// `AGENT_CREATING` and `ARCHIVED`.
+    /// `AGENT_CREATING`, `ARCHIVE_PENDING` and `ARCHIVED`.
     pub status: Option<&'a str>,
     /// Agents linked to this brand (carrier brand ID, provisional UUID or `_id`).
     pub brand_id: Option<&'a str>,
@@ -148,6 +149,31 @@ pub struct EstimateRcsMessageParams<'a> {
     /// As on [`SendRcsMessageParams`], but its `from` is optional: with none, the leg is priced on
     /// the channel of the agent's linked campaign.
     pub fallback: Option<&'a Value>,
+}
+
+/// Parameters for [`RcsMessagesDomain::simulate_inbound`]. Unset fields are left out of the body.
+#[derive(Debug, Default)]
+pub struct SimulateRcsInboundParams<'a> {
+    /// The agent (`RCSA…`). Required.
+    pub agent_id: &'a str,
+    /// The approved tester's number. Required.
+    pub from: &'a str,
+    /// TEXT, SUGGESTION, LOCATION, FILE or UNSUBSCRIBE; sent as `type`. Required.
+    pub event_type: &'a str,
+    /// The text; required for `TEXT`.
+    pub text: Option<&'a str>,
+    /// The tapped suggestion's postback; `SUGGESTION` needs this or `button_id`.
+    pub postback_data: Option<&'a str>,
+    /// The message a tap answers; the latest message delivered to the tester by default.
+    pub message_id: Option<&'a str>,
+    /// The suggestion's position, as webhooks report it.
+    pub button_id: Option<&'a str>,
+    /// Required for `LOCATION`.
+    pub latitude: Option<f64>,
+    /// Required for `LOCATION`.
+    pub longitude: Option<f64>,
+    /// The file's name, for `FILE`.
+    pub file_name: Option<&'a str>,
 }
 
 /// Filters for [`RcsMessagesDomain::list`].
@@ -302,7 +328,7 @@ impl RcsAgentsDomain {
 
     /// Submit a draft: create the agent at the carrier partner, with no review first (status
     /// `AGENT_CREATING`, then `IN_TESTING` once the partner reports it ready). It needs the full
-    /// profile, a use case and `NON_CONVERSATIONAL` billing; otherwise a 400 whose details carry
+    /// profile, a use case and a billing category; otherwise a 400 whose details carry
     /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`.
     ///
     /// **POST** `/rcs/agent/:agentId/submit`
@@ -322,7 +348,8 @@ impl RcsAgentsDomain {
     /// partner. Allowed from `IN_TESTING`, `REJECTED` and `CARRIER_REJECTED` (409 otherwise); a
     /// failed requirement is a 400 whose details carry `{ code: "REGISTRATION_INCOMPLETE", errors,
     /// warnings }`. The agent is a registration, so this is the registration's launch route.
-    /// The request charges the agent's launch fees: a wallet that cannot cover them gets a 402, and the agent stays where it is. The agent's launchFees quotes what the next request charges.
+    /// The request charges the agent's launch fees: a wallet that cannot cover them gets a 402, and the agent stays where it is. When any fee is due the request must set the acknowledgement (see `launch_acknowledging_fees`), or it gets a 400 with code FEE_ACKNOWLEDGEMENT_REQUIRED and nothing is held; a launch with nothing due needs no acknowledgement. The agent's launchFees quotes what the next request charges.
+    /// When the agent's brand vertical is healthcare or insurance, the launch needs the protected health information (PHI) disclosure acknowledged: use `launch_acknowledging` with `phi` set, or the request gets a 400 REGISTRATION_INCOMPLETE whose errors name `consent.phiAcknowledgement`. The API records the acknowledgement as `consent.phiAcknowledgement { acknowledgedAt, acknowledgedBy }` from the caller; the client sends only the boolean, and an agent update cannot set it. Once recorded, a later launch request needs no new acknowledgement.
     ///
     /// **POST** `/registration/:agentId/launch`
     pub async fn launch(
@@ -337,7 +364,43 @@ impl RcsAgentsDomain {
             .await
     }
 
-    /// Archive an agent (status `ARCHIVED`).
+    /// `launch`, accepting the fees due. Required when any fee is due.
+    ///
+    /// **POST** `/registration/:agentId/launch`
+    pub async fn launch_acknowledging_fees(
+        &self,
+        agent_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("agentId", Some(agent_id))])?;
+        let path = format!("/registration/{}/launch", urlencoding::encode(agent_id));
+        let payload = json!({ "acknowledgeFees": true });
+        self.http
+            .request_json(&path, Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// `launch`, with what the request accepts: the fees due, and the PHI disclosure.
+    /// When the agent's brand vertical is healthcare or insurance, the launch needs the protected health information (PHI) disclosure acknowledged: set `phi`, or the request gets a 400 REGISTRATION_INCOMPLETE whose errors name `consent.phiAcknowledgement`. The API records the acknowledgement as `consent.phiAcknowledgement { acknowledgedAt, acknowledgedBy }` from the caller; the client sends only the boolean, and an agent update cannot set it. Once recorded, a later launch request needs no new acknowledgement.
+    ///
+    /// **POST** `/registration/:agentId/launch`
+    pub async fn launch_acknowledging(
+        &self,
+        agent_id: &str,
+        acknowledgements: LaunchAcknowledgements,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("agentId", Some(agent_id))])?;
+        let path = format!("/registration/{}/launch", urlencoding::encode(agent_id));
+        let payload = acknowledgements.body();
+        self.http
+            .request_json(&path, Method::POST, payload.as_ref(), options)
+            .await
+    }
+
+    /// Archive an agent (status `ARCHIVE_PENDING` or `ARCHIVED`). One the carrier partner created stops
+    /// sending at once and stays `ARCHIVE_PENDING` until Signal House confirms the partner cancelled it,
+    /// then `ARCHIVED`. Archiving cannot be undone; an agent already `ARCHIVE_PENDING` answers 409.
     ///
     /// **POST** `/rcs/agent/:agentId/archive`
     pub async fn archive(
@@ -371,6 +434,28 @@ impl RcsAgentsDomain {
         );
         self.http
             .request_json(&path, Method::POST, None, options)
+            .await
+    }
+
+    /// Remove a tester at once, at any point before the agent is archived. The number must be a
+    /// tester on the agent (404); an archived agent answers 409. `phone_number` is a US number,
+    /// with or without the `+`.
+    ///
+    /// **DELETE** `/rcs/agent/:agentId/testers/:phoneNumber`
+    pub async fn remove_tester(
+        &self,
+        agent_id: &str,
+        phone_number: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("phoneNumber", Some(phone_number))])?;
+        let path = format!(
+            "{}/testers/{}",
+            agent_path(agent_id)?,
+            urlencoding::encode(phone_number)
+        );
+        self.http
+            .request_json(&path, Method::DELETE, None, options)
             .await
     }
 
@@ -411,7 +496,9 @@ impl RcsMessagesDomain {
     /// Send an RCS message to up to 100 recipients (HTTP 201) and return `{ requested, enqueued,
     /// failed, bulkId, messages }`. A check that blocks one recipient writes a
     /// `BLOCKED` message for it and the rest still send; its row carries `blockReason`, `reason`
-    /// and `issues`. An archived template answers 409 `TEMPLATE_ARCHIVED`. Set
+    /// and `issues`. An archived template answers 409 `TEMPLATE_ARCHIVED`. A recipient from
+    /// 19999990000 to 19999990359 makes the whole request a simulation, as on SMS: it returns
+    /// `{ simulated: true, webhooks }` and nothing is stored, sent or charged. Set
     /// `RequestOptions.idempotency_key` to make a retry safe.
     ///
     /// **POST** `/message/rcs`
@@ -454,7 +541,7 @@ impl RcsMessagesDomain {
     /// no charge or send. `channel` `rcs` is added to the
     /// body. The fallback's `from` is optional for an estimate: with none, the fallback leg is
     /// priced on the channel of the agent's linked campaign. `rcsLeg.mediaSurcharge` is the
-    /// carrier's surcharge on media over 5 MB, already inside `rcsLeg.cost`; a message over 100 MB
+    /// carrier's surcharge on media over 5 MB for one recipient, and `rcsLeg.cost` already holds it for every recipient; `rcsLeg.cost` is null with the fallback mode sms_only; a message over 100 MB
     /// adds a `MEDIA_TOO_LARGE` issue.
     ///
     /// **POST** `/message/estimate`
@@ -470,8 +557,8 @@ impl RcsMessagesDomain {
     }
 
     /// Report which numbers (up to 500, 10-15 digits, with or without the `+`) can receive RCS from
-    /// an agent as `{ results: [{ phoneNumber, capability }] }`, `capability` being `ENABLED`,
-    /// `UNREACHABLE` or `UNKNOWN`.
+    /// an agent as `{ results: [{ phoneNumber, capability, rcsEnabled, reason, features, carrier, checkedAt, cached }] }`,
+    /// capability being ENABLED, UNREACHABLE or UNKNOWN, and reason CAPABLE, NOT_CAPABLE, NOT_LAUNCHED_ON_CARRIER or UNKNOWN; rcsEnabled is true only for CAPABLE, carrier and checkedAt may be null, and features is empty today.
     ///
     /// **POST** `/rcs/capabilities`
     pub async fn capabilities(
@@ -487,6 +574,40 @@ impl RcsMessagesDomain {
         let payload = json!({ "agentId": agent_id, "phoneNumbers": phone_numbers });
         self.http
             .request_json("/rcs/capabilities", Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// Fake an inbound event from an approved tester of the agent, with no carrier involved: it runs the real inbound handlers and webhooks, as free test traffic. A simulated STOP really opts the tester out; a simulated START clears it. Anyone else gets a 403 with code NOT_TESTER. Returns 202 with { status, messageId }.
+    ///
+    /// **POST** `/message/rcs/simulate-inbound`
+    pub async fn simulate_inbound(
+        &self,
+        params: SimulateRcsInboundParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("agentId", Some(params.agent_id)),
+            ("from", Some(params.from)),
+            ("type", Some(params.event_type)),
+        ])?;
+        let mut body = Map::new();
+        set(&mut body, "agentId", Some(params.agent_id));
+        set(&mut body, "from", Some(params.from));
+        set(&mut body, "type", Some(params.event_type));
+        set(&mut body, "text", params.text);
+        set(&mut body, "postbackData", params.postback_data);
+        set(&mut body, "messageId", params.message_id);
+        set(&mut body, "buttonId", params.button_id);
+        set(&mut body, "latitude", params.latitude);
+        set(&mut body, "longitude", params.longitude);
+        set(&mut body, "fileName", params.file_name);
+        self.http
+            .request_json(
+                "/message/rcs/simulate-inbound",
+                Method::POST,
+                Some(&Value::Object(body)),
+                options,
+            )
             .await
     }
 
@@ -542,6 +663,7 @@ impl RcsMessagesDomain {
             ),
             ("isTest", params.is_test.map(|flag| flag.to_string())),
             ("messageType", Some("RCS".to_string())),
+            ("dateBounds", Some("exact".to_string())),
         ]);
         self.http
             .request_json(&format!("/message{}", qs), Method::GET, None, options)

@@ -380,6 +380,26 @@ async fn staff_review_corrections_numbers_reconcile_and_application() {
     );
 
     let (client, request) = capture_server();
+    let reasons =
+        serde_json::json!([{"code": "OPT_IN_SCOPE", "reason": "Promotions are not covered"}]);
+    client
+        .registrations
+        .review_registration_with_reasons(
+            "RCSA1",
+            "REJECT",
+            Some("Consent is too narrow"),
+            Some("OPT_IN_SCOPE"),
+            Some(&reasons),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        body(&request.join().unwrap()),
+        serde_json::json!({"action": "REJECT", "reason": "Consent is too narrow", "reasonCode": "OPT_IN_SCOPE", "rejectionReasons": reasons})
+    );
+
+    let (client, request) = capture_server();
     let corrections = serde_json::json!({"useCases": ["Support"]});
     client
         .registrations

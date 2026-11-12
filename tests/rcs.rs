@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use signalhouse_sms::domains::messages::GetMessagesParams;
 use signalhouse_sms::domains::rcs::{
     CreateRcsAgentParams, EstimateRcsMessageParams, ListRcsAgentsParams, ListRcsMessagesParams,
-    SendRcsMessageParams, UpdateRcsAgentParams,
+    SendRcsMessageParams, SimulateRcsInboundParams, UpdateRcsAgentParams,
 };
-use signalhouse_sms::domains::registrations::GetRegistrationsParams;
+use signalhouse_sms::domains::registrations::{GetRegistrationsParams, LaunchAcknowledgements};
 use signalhouse_sms::{
     RequestOptions, SignalHouseClient, SignalHouseConfig, SignalHouseError, SignalHouseResponse,
 };
@@ -192,6 +192,53 @@ async fn get_update_validate_submit_and_archive_address_the_agent() {
     );
     assert!(rejected(offline().rcs.agents.launch("", None).await));
 
+    let wire = capture!(client => client.rcs.agents.launch_acknowledging_fees(AGENT, None));
+    assert_eq!(
+        request_line(&wire),
+        format!("POST /registration/{AGENT}/launch")
+    );
+    assert_eq!(body(&wire), json!({ "acknowledgeFees": true }));
+    assert!(rejected(
+        offline()
+            .rcs
+            .agents
+            .launch_acknowledging_fees("", None)
+            .await
+    ));
+
+    let wire = capture!(client => client.registrations.launch_registration_acknowledging_fees(AGENT, None));
+    assert_eq!(body(&wire), json!({ "acknowledgeFees": true }));
+
+    let both = LaunchAcknowledgements {
+        fees: true,
+        phi: true,
+    };
+    let wire = capture!(client => client.registrations.launch_registration_acknowledging(AGENT, both, None));
+    assert_eq!(
+        request_line(&wire),
+        format!("POST /registration/{AGENT}/launch")
+    );
+    assert_eq!(
+        body(&wire),
+        json!({ "acknowledgeFees": true, "acknowledgePhi": true })
+    );
+
+    let phi_only = LaunchAcknowledgements {
+        phi: true,
+        ..Default::default()
+    };
+    let wire = capture!(client => client.rcs.agents.launch_acknowledging(AGENT, phi_only, None));
+    assert_eq!(body(&wire), json!({ "acknowledgePhi": true }));
+
+    let wire = capture!(client => client.rcs.agents.launch_acknowledging(AGENT, LaunchAcknowledgements::default(), None));
+    assert_eq!(raw_body(&wire), "");
+
+    let wire = capture!(client => client.billing.get_transaction_history_by_category("G1", "RCS_INBOUND,RCS_CARRIER_PASSTHROUGH", None, None, Some(2), Some(1000), None));
+    assert_eq!(
+        request_line(&wire),
+        "GET /billing/wallet/transactionHistory?groupId=G1&category=RCS_INBOUND%2CRCS_CARRIER_PASSTHROUGH&page=2&limit=1000"
+    );
+
     let wire = capture!(client => client.rcs.agents.archive(AGENT, None));
     assert_eq!(
         request_line(&wire),
@@ -204,6 +251,13 @@ async fn get_update_validate_submit_and_archive_address_the_agent() {
     assert_eq!(
         request_line(&wire),
         format!("POST /rcs/agent/{AGENT}/testers/%2B15125550199/resend")
+    );
+    assert_eq!(raw_body(&wire), "");
+
+    let wire = capture!(client => client.rcs.agents.remove_tester(AGENT, "+15125550199", None));
+    assert_eq!(
+        request_line(&wire),
+        format!("DELETE /rcs/agent/{AGENT}/testers/%2B15125550199")
     );
     assert_eq!(raw_body(&wire), "");
 
@@ -283,6 +337,7 @@ async fn missing_inputs_fail_before_transport() {
     assert!(rejected(agents.submit("", None).await));
     assert!(rejected(agents.archive("", None).await));
     assert!(rejected(agents.resend_tester_invite(AGENT, "", None).await));
+    assert!(rejected(agents.remove_tester(AGENT, "", None).await));
     assert!(rejected(
         agents
             .upload_asset(AGENT, "", b"PNG".to_vec(), None, None)
@@ -399,6 +454,33 @@ async fn estimate_adds_the_channel() {
 }
 
 #[tokio::test]
+async fn simulate_inbound_posts_the_event() {
+    let wire = capture!(client => client.rcs.messages.simulate_inbound(
+        SimulateRcsInboundParams { agent_id: AGENT, from: "+15125550199", event_type: "SUGGESTION", postback_data: Some("track_pkg"), ..Default::default() },
+        None
+    ));
+    assert_eq!(request_line(&wire), "POST /message/rcs/simulate-inbound");
+    assert_eq!(
+        body(&wire),
+        json!({ "agentId": AGENT, "from": "+15125550199", "type": "SUGGESTION", "postbackData": "track_pkg" })
+    );
+    assert!(rejected(
+        offline()
+            .rcs
+            .messages
+            .simulate_inbound(
+                SimulateRcsInboundParams {
+                    agent_id: AGENT,
+                    event_type: "TEXT",
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+    ));
+}
+
+#[tokio::test]
 async fn capabilities_posts_the_numbers() {
     let wire = capture!(client => client.rcs.messages.capabilities(AGENT, &["+15125550199"], None));
     assert_eq!(request_line(&wire), "POST /rcs/capabilities");
@@ -446,7 +528,7 @@ async fn list_maps_the_filters_and_adds_the_type() {
             "GET /message?registrationId={AGENT}&startDate=2026-11-01&endDate=2026-11-02&groupId=G1\
              &status=READ&page=2&limit=50&templateId=T1&templateVersion=3&bulkId=B1\
              &fallbackReason=NOT_CAPABLE&billingClass=RICH_MEDIA&deliveredChannel=sms&isTest=false\
-             &messageType=RCS"
+             &messageType=RCS&dateBounds=exact"
         )
     );
 
@@ -554,4 +636,203 @@ async fn missing_message_inputs_fail_before_transport() {
     assert!(rejected(messages.capabilities(AGENT, &[], None).await));
     assert!(rejected(messages.get("", None).await));
     assert!(rejected(client.messages.get_message("", None).await));
+}
+
+#[tokio::test]
+async fn webhooks_filter_by_agent_and_send_the_agent_fields() {
+    let wire = capture!(client => client.webhooks.get_webhooks_by_agent(Some("G1"), AGENT, None, None, None));
+    assert_eq!(
+        request_line(&wire),
+        format!("GET /webhook?groupId=G1&agentId={AGENT}")
+    );
+    let wire = capture!(client => client.webhooks.get_webhooks(None, Some("G1"), Some("Agent"), None, Some(1), Some(25), None));
+    assert_eq!(
+        request_line(&wire),
+        "GET /webhook?groupId=G1&endpointType=Agent&page=1&limit=25"
+    );
+    let data = json!({ "groupId": "G1", "endpointType": "Agent", "agentId": AGENT, "url": "https://a.example/rcs", "secondaryUrl": "https://b.example/rcs" });
+    let wire = capture!(client => client.webhooks.create_webhook(&data, None));
+    assert_eq!(body(&wire), data);
+}
+
+#[tokio::test]
+async fn get_message_interactions_addresses_the_message() {
+    let wire = capture!(client => client.messages.get_message_interactions("m1", None));
+    assert_eq!(request_line(&wire), "GET /message/m1/interactions");
+    assert!(rejected(
+        offline().messages.get_message_interactions("", None).await
+    ));
+}
+
+/// One corpus case's string field.
+fn text<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
+    input[key].as_str()
+}
+
+/// One corpus case's number field.
+fn number(input: &Value, key: &str) -> Option<u32> {
+    input[key].as_u64().map(|value| value as u32)
+}
+
+/// One corpus case's object field.
+fn object<'a>(input: &'a Value, key: &str) -> Option<&'a Value> {
+    (!input[key].is_null()).then(|| &input[key])
+}
+
+/// One corpus case's list of strings.
+fn strings<'a>(input: &'a Value, key: &str) -> Option<Vec<&'a str>> {
+    input[key]
+        .as_array()
+        .map(|values| values.iter().map(|value| value.as_str().unwrap()).collect())
+}
+
+/// The parameters of a send or a validate.
+fn send_params(input: &Value) -> SendRcsMessageParams<'_> {
+    SendRcsMessageParams {
+        agent_id: text(input, "agentId").unwrap(),
+        recipients: input["recipients"].as_array().unwrap(),
+        template_id: text(input, "templateId"),
+        template_version: number(input, "templateVersion"),
+        content: object(input, "content"),
+        content_format: text(input, "contentFormat"),
+        traffic_type: text(input, "trafficType"),
+        ttl_seconds: number(input, "ttlSeconds"),
+        expire_time: text(input, "expireTime"),
+        fallback: object(input, "fallback"),
+        status_callback_url: text(input, "statusCallbackUrl"),
+        enable_shortlink: input["enableShortlink"].as_bool(),
+        is_test: input["isTest"].as_bool(),
+        simulate: text(input, "simulate"),
+    }
+}
+
+/// Run the operation a corpus case names against a fresh capture server, and return the raw request.
+async fn run_fixture(operation: &str, input: &Value) -> String {
+    let (client, request) = capture_server();
+    let agents = &client.rcs.agents;
+    let messages = &client.rcs.messages;
+    let agent_id = text(input, "agentId").unwrap_or("");
+    let phone = text(input, "phoneNumber").unwrap_or("");
+    let excluded = strings(input, "excludedCarriers");
+    let testers = strings(input, "testers");
+    let result = match operation {
+        "messages.send" => messages.send(send_params(input), None).await,
+        "messages.validate" => messages.validate(send_params(input), None).await,
+        "messages.estimate" => {
+            let params = EstimateRcsMessageParams {
+                agent_id,
+                recipient_count: number(input, "recipientCount"),
+                content: object(input, "content"),
+                ..Default::default()
+            };
+            messages.estimate(params, None).await
+        }
+        "messages.capabilities" => {
+            let numbers = strings(input, "phoneNumbers").unwrap();
+            messages.capabilities(agent_id, &numbers, None).await
+        }
+        "messages.get" => messages.get(text(input, "messageId").unwrap(), None).await,
+        "messages.list" => {
+            let params = ListRcsMessagesParams {
+                agent_id: text(input, "agentId"),
+                from: text(input, "from").unwrap(),
+                to: text(input, "to").unwrap(),
+                group_id: text(input, "groupId").unwrap(),
+                status: text(input, "status"),
+                page: number(input, "page"),
+                limit: number(input, "limit"),
+                ..Default::default()
+            };
+            messages.list(params, None).await
+        }
+        "agents.create" => {
+            let params = CreateRcsAgentParams {
+                brand_id: text(input, "brandId").unwrap(),
+                campaign_id: text(input, "campaignId"),
+                agent: object(input, "agent"),
+                use_case: text(input, "useCase"),
+                default_fallback: object(input, "defaultFallback"),
+                excluded_carriers: excluded.as_deref(),
+                testers: testers.as_deref(),
+                ..Default::default()
+            };
+            agents.create(params, None).await
+        }
+        "agents.list" => {
+            let params = ListRcsAgentsParams {
+                status: text(input, "status"),
+                brand_id: text(input, "brandId"),
+                page: number(input, "page"),
+                limit: number(input, "limit"),
+                ..Default::default()
+            };
+            agents.list(params, None).await
+        }
+        "agents.get" => agents.get(agent_id, None).await,
+        "agents.update" => {
+            let params = UpdateRcsAgentParams {
+                agent_id,
+                agent: object(input, "agent"),
+                testers: testers.as_deref(),
+                ..Default::default()
+            };
+            agents.update(params, None).await
+        }
+        "agents.validate" => agents.validate(agent_id, None).await,
+        "agents.submit" => agents.submit(agent_id, None).await,
+        "agents.launch" => {
+            let acknowledgements = LaunchAcknowledgements {
+                fees: input["acknowledgeFees"].as_bool().unwrap_or(false),
+                phi: input["acknowledgePhi"].as_bool().unwrap_or(false),
+            };
+            agents
+                .launch_acknowledging(agent_id, acknowledgements, None)
+                .await
+        }
+        "agents.archive" => agents.archive(agent_id, None).await,
+        "agents.resendTesterInvite" => agents.resend_tester_invite(agent_id, phone, None).await,
+        "agents.removeTester" => agents.remove_tester(agent_id, phone, None).await,
+        other => panic!("no adapter for {other}"),
+    };
+    result.unwrap();
+    request.join().unwrap()
+}
+
+#[tokio::test]
+async fn every_case_in_the_shared_corpus_produces_its_request() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/rcs/requests.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return; // The corpus lives in the monorepo.
+    };
+    let corpus: Value = serde_json::from_str(&raw).unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let wire = run_fixture(case["operation"].as_str().unwrap(), &case["input"]).await;
+        let request = &case["request"];
+        let line = request_line(&wire);
+        let (method, target) = line.split_once(' ').unwrap();
+        let (path, query) = target.split_once('?').unwrap_or((target, ""));
+        assert_eq!(method, request["method"], "{name}: method");
+        assert_eq!(path, request["path"], "{name}: path");
+        let pairs: serde_json::Map<String, Value> = query
+            .split('&')
+            .filter(|pair| !pair.is_empty())
+            .map(|pair| pair.split_once('=').unwrap())
+            .map(|(key, value)| (key.to_string(), Value::from(value)))
+            .collect();
+        let wanted = request["query"].as_object().cloned().unwrap_or_default();
+        assert_eq!(pairs, wanted, "{name}: query");
+        let sent = raw_body(&wire);
+        let sent: Value = if sent.is_empty() {
+            json!({})
+        } else {
+            serde_json::from_str(sent).unwrap()
+        };
+        let wanted = if request["body"].is_null() {
+            json!({})
+        } else {
+            request["body"].clone()
+        };
+        assert_eq!(sent, wanted, "{name}: body");
+    }
 }

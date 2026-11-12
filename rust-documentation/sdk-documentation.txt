@@ -203,6 +203,16 @@ BILLING  (client.billing)
       start_date, end_date },
       options) -> Result<SignalHouseResponse>
     Get transaction history with filters.
+    category: one RCS category or a comma-separated list: RCS_RICH_OUTBOUND,
+    RCS_RICH_MEDIA_OUTBOUND, RCS_INBOUND, RCS_ACTION_CLICK, RCS_MEDIA_SURCHARGE,
+    RCS_FEE_ONBOARDING, RCS_FEE_RENEWAL, RCS_SESSION_ADJUSTMENT or
+    RCS_SESSION_CARRIER_ADJUSTMENT;
+    RCS_CARRIER_PASSTHROUGH reads RCS carrier rows alone. Any other value is
+    rejected with a 400.
+
+  get_transaction_history_by_category(group_id, category, start_date, end_date,
+      page, limit, options) -> Result<SignalHouseResponse>
+    Get one group's transactions in a category, a page at a time.
 
   get_wallet(GetWalletParams { group_id },
       options) -> Result<SignalHouseResponse>
@@ -261,6 +271,21 @@ BRANDS  (client.brands)
 
   create_brand(brand_data, options) -> Result<SignalHouseResponse>
     Create a new 10DLC brand.
+
+  get_caller_name(brand_id, options) -> Result<SignalHouseResponse>
+    Read a brand's caller name (CNAM) and the numbers it applies to:
+    { brandId, companyName, cnamName, eligible, numbers: { total, items } }.
+    Roles: api, admin, developer, billing, user.
+
+  set_caller_name(brand_id, name, options) -> Result<SignalHouseResponse>
+    Set a brand's caller name for every number whose caller name comes from
+    the brand, names set on a number included; later numbers get it too. The
+    name may only remove characters from the brand's registered name.
+    Roles: api, admin, developer.
+
+  delete_caller_name(brand_id, options) -> Result<SignalHouseResponse>
+    Remove a brand's caller name; names set on a number are kept.
+    Roles: api, admin, developer.
 
   create_toll_free_brand(brand_data, options) -> Result<SignalHouseResponse>
     Create a new toll-free brand (POST /brand/toll-free); registrationType
@@ -459,6 +484,12 @@ MESSAGES  (client.messages)
 
   get_message(id, options) -> Result<SignalHouseResponse>
     GET /message/:id. Get one message of any type. An unknown ID is a 404. Required: id
+    An outbound RCS message and its fallback leg also carry costBreakdown,
+    { legs: [{ messageId, channel, billed, billingClass, segments, baseMicros,
+    carrierMicros, rated }] }, which is null when it cannot be computed.
+
+  get_message_interactions(id, options) -> Result<SignalHouseResponse>
+    GET /message/:id/interactions. The taps on one RCS message, oldest first. Required: id
 
   get_analytics(GetAnalyticsParams { group_id, subgroup_id, brand_id,
       campaign_id, registration_id, phone_number, carrier, start_date, end_date },
@@ -572,7 +603,8 @@ NUMBERS  (client.numbers)
 
   delete_caller_name(phone_number,
       options) -> Result<SignalHouseResponse>
-    Remove a number's own caller name (CNAM). Roles: api, admin, developer.
+    Remove a number's own caller name (CNAM); it falls back to the brand's
+    caller name, then auto-apply. Roles: api, admin, developer.
 
   assign_phone_number_to_campaign(campaign_id, phone_numbers,
       options) -> Result<SignalHouseResponse>
@@ -721,6 +753,12 @@ TEMPLATES  (client.templates)
     No draft is 409 NO_DRAFT; a draft that changed while it was being
     published is 409 DRAFT_CHANGED (publish again); an incomplete draft is 400
     {code: "TEMPLATE_INVALID", errors, warnings}.
+    publish and validate send each block's text and images to the Moderation
+    API. A flag is an error {severity: "error", code:
+    "CONTENT_POLICY_FLAGGED", path, message, blockId} whose message names the
+    category, for example "Content moderation flagged this text: spam". The
+    check passes when the Moderation API fails, and saving a draft does not
+    run it.
 
   archive(template_id, group_id,
       options) -> Result<SignalHouseResponse>
@@ -734,7 +772,8 @@ TEMPLATES  (client.templates)
       options) -> Result<SignalHouseResponse>
     POST /template/:templateId/validate. Pass exactly one of body or
     version (a numeric version is sent as a number). Writes nothing; returns
-    {valid, contentHash, validatorVersion, errors, warnings}.
+    {valid, contentHash, validatorVersion, errors, warnings}. errors include
+    CONTENT_POLICY_FLAGGED, as on publish.
 
   capabilities(group_id, channel, provider,
       options) -> Result<SignalHouseResponse>
@@ -774,7 +813,7 @@ RCS AGENTS  (client.rcs.agents)
   The agent: { agentId, groupId, subgroupId, status, registrationStatus,
   stage, brandId, brandRef, campaignId, campaignRef, links, agent, consent,
   useCase, billingCategory, defaultFallback, excludedCarriers, testers,
-  contact, testerInvites, carriers, launchable, review, submittedAt,
+  contact, testerInvites, carriers, launchable, review, redlineDiff, submittedAt,
   approvedAt, history, createdAt, updatedAt }. launchable is true
   when the launch request would be accepted now. brandRef and
   campaignRef are the linked records' _ids; brandId and campaignId are their
@@ -782,7 +821,8 @@ RCS AGENTS  (client.rcs.agents)
   brand: { state: OK | NOT_VERIFIED | MISSING, ... }, campaign: { state: OK |
   NOT_ACTIVE | MISSING | NONE, ... } }; a deleted brand or campaign reads
   MISSING. status: DRAFT, PENDING_REVIEW, REJECTED, AGENT_CREATING (approved,
-  waiting for the carrier launch), ARCHIVED.
+  waiting for the carrier launch), ARCHIVE_PENDING (waiting for the carrier partner
+  to cancel it), ARCHIVED.
 
   create(CreateRcsAgentParams { brand_id, campaign_id, agent, consent,
       use_case, billing_category, default_fallback, excluded_carriers,
@@ -817,26 +857,46 @@ RCS AGENTS  (client.rcs.agents)
   submit(agent_id, options) -> Result<SignalHouseResponse>
     POST /rcs/agent/:agentId/submit. Create the agent at the carrier partner,
     with no review first. Needs the full profile, useCase and
-    NON_CONVERSATIONAL billing; otherwise 400 with details {code:
+    a billingCategory; otherwise 400 with details {code:
     "REGISTRATION_INCOMPLETE", errors, warnings}. The agent moves to
     AGENT_CREATING, then IN_TESTING once the partner reports it ready.
 
   launch(agent_id, options) -> Result<SignalHouseResponse>
+  launch_acknowledging_fees(agent_id, options) -> Result<SignalHouseResponse>
+  launch_acknowledging(agent_id, LaunchAcknowledgements { fees, phi },
+      options) -> Result<SignalHouseResponse>
     POST /registration/:agentId/launch. Request the launch: the launch
     requirements are checked (a VERIFIED brand, the campaign, the full consent
     with the launch video, the contact) and the agent goes to PENDING_REVIEW;
     Signal House's approval files the launch with the carrier partner. Allowed
     from IN_TESTING, REJECTED and CARRIER_REJECTED (409 otherwise); a failed
     requirement is 400 REGISTRATION_INCOMPLETE.
+    When any fee is due the request needs the acknowledgement, or it gets a 400
+    with code FEE_ACKNOWLEDGEMENT_REQUIRED and nothing is held.
     The request charges the agent's launch fees: a wallet that cannot cover
     them gets a 402, and the agent stays where it is.
     The agent's launchFees quotes what the next request charges.
+    When the agent's brand vertical is healthcare or insurance, the launch
+    needs the protected health information (PHI) disclosure acknowledged: call
+    launch_acknowledging with phi: true, or the request gets a 400
+    REGISTRATION_INCOMPLETE whose errors name consent.phiAcknowledgement. The
+    API records the acknowledgement as consent.phiAcknowledgement
+    {acknowledgedAt, acknowledgedBy} from the caller; the client sends only
+    the boolean, and an agent update cannot set it. Once recorded, a later
+    launch request needs no new acknowledgement. LaunchAcknowledgements
+    (domains::registrations) sends acknowledgeFees and acknowledgePhi for
+    each field that is true.
 
   archive(agent_id, options) -> Result<SignalHouseResponse>
     POST /rcs/agent/:agentId/archive. Archive the agent.
+    One the carrier partner created stops sending at once and stays ARCHIVE_PENDING until
+    Signal House confirms the partner cancelled it, then ARCHIVED. Archiving cannot be undone;
+    an agent already ARCHIVE_PENDING answers 409.
 
   resend_tester_invite(agent_id, phone_number, options) -> Result<SignalHouseResponse>
     POST /rcs/agent/:agentId/testers/:phoneNumber/resend. Resend a tester's expired invitation.
+  remove_tester(agent_id, phone_number, options) -> Result<SignalHouseResponse>
+    DELETE /rcs/agent/:agentId/testers/:phoneNumber. Remove a tester at once, at any point before the agent is archived.
 
   upload_asset(agent_id, kind, file, file_name,
       options) -> Result<SignalHouseResponse>
@@ -866,6 +926,9 @@ RCS MESSAGES  (client.rcs.messages)
     ttl_expired | delivered | read, approved testers only.
     Required: agent_id, recipients
     Returns: { requested, enqueued, failed, bulkId, messages } (201)
+    A recipient from 19999990000 to 19999990359 makes the whole request a
+    simulation, as on SMS: it returns { simulated: true, webhooks } and nothing
+    is stored, sent or charged.
 
   validate(SendRcsMessageParams { .. }, options) -> Result<SignalHouseResponse>
     POST /message/rcs/validate. Check a send; writes nothing. Takes the same
@@ -885,15 +948,28 @@ RCS MESSAGES  (client.rcs.messages)
     campaign. Required: agent_id
     Returns: { billingClass, segments, recipientCount, rcsLeg, fallbackLeg,
     totals, balance, issues, warnings }
-    rcsLeg.mediaSurcharge is the carrier's surcharge on media over 5 MB,
-    already inside rcsLeg.cost; a message over 100 MB adds a MEDIA_TOO_LARGE
+    rcsLeg.mediaSurcharge is the carrier's surcharge on media over 5 MB for one recipient, and rcsLeg.cost already holds it for every recipient; rcsLeg.cost is null with the fallback mode sms_only; a message over 100 MB adds a MEDIA_TOO_LARGE
     issue.
 
   capabilities(agent_id, phone_numbers, options) -> Result<SignalHouseResponse>
     POST /rcs/capabilities. Report which numbers (up to 500) can receive RCS.
     Required: agent_id, phone_numbers
-    Returns: { results: [{ phoneNumber, capability }] }, capability being
-    ENABLED, UNREACHABLE or UNKNOWN
+    Returns: { results: [{ phoneNumber, capability, rcsEnabled, reason, features,
+    carrier, checkedAt, cached }] }. capability is ENABLED, UNREACHABLE or
+    UNKNOWN; reason is CAPABLE, NOT_CAPABLE, NOT_LAUNCHED_ON_CARRIER or UNKNOWN.
+    rcsEnabled is true only for CAPABLE. carrier and checkedAt may be null, and
+    features is empty today.
+
+  simulate_inbound(SimulateRcsInboundParams { agent_id, from, event_type, text,
+      postback_data, message_id, button_id, latitude, longitude, file_name },
+      options) -> Result<SignalHouseResponse>
+    POST /message/rcs/simulate-inbound. Fake an inbound event from an approved
+    tester, with no carrier involved. It runs the real handlers and webhooks as
+    free test traffic; a simulated STOP really opts the tester out.
+    type: TEXT, SUGGESTION, LOCATION, FILE or UNSUBSCRIBE. TEXT needs text;
+    SUGGESTION needs the postback or button; LOCATION needs both coordinates.
+    Anyone else gets a 403 with code NOT_TESTER.
+    Returns: { status: "QUEUED", messageId }
 
   get(message_id, options) -> Result<SignalHouseResponse>
     GET /message/:messageId. Get one message; the same route as
@@ -951,8 +1027,11 @@ WEBHOOKS  (client.webhooks)
       options) -> Result<SignalHouseResponse>
     List webhooks with filters.
 
+  get_webhooks_by_agent(group_id, agent_id, page, limit, options) -> Result<SignalHouseResponse>
+    List one RCS agent's Agent endpoints.
+
   create_webhook(webhook_data, options) -> Result<SignalHouseResponse>
-    Create a new webhook.
+    Create a new webhook. An Agent endpoint takes agentId and an optional secondaryUrl.
 
   update_webhook(id, update_data, options) -> Result<SignalHouseResponse>
     Update webhook configuration, including authType, apiHeaderPrefix and credentials
@@ -1297,7 +1376,10 @@ it writes nothing. submit_registration(registration_id) sends POST
 /registration/:registrationId/submit and moves a draft to SIGNAL_HOUSE_REVIEW,
 or to SUBMITTING for a type Signal House does not review first (RCS_AGENT,
 filed with the provider at once) (400 REGISTRATION_INCOMPLETE with the errors,
-409 on a second submit). launch_registration(registration_id) sends POST
+409 on a second submit). launch_registration(registration_id), or
+launch_registration_acknowledging_fees(registration_id) when fees are due, or
+launch_registration_acknowledging(registration_id, LaunchAcknowledgements { fees, phi })
+for a healthcare or insurance brand's PHI disclosure, sends POST
 /registration/:registrationId/launch: an RCS agent the carrier partner holds in
 testing goes to SIGNAL_HOUSE_REVIEW, whose approval files the launch (409 unless
 the agent is in testing, Signal House rejected an earlier request, or every
@@ -1378,6 +1460,8 @@ LANGUAGE EXAMPLE
   client.registrations.get_registration("REG1", None).await?;
   client.registrations.cancel_registration("REG1", None).await?;
   client.registrations.review_registration("REG1", "APPROVE", None, None).await?; // `admin` feature
+  // An RCS agent's rejection needs a reason code and a 10 to 256 character reason:
+  client.registrations.review_registration_with_reasons("RCSA7K2M1QZ8RP", "REJECT", Some("Consent is too narrow"), Some("OPT_IN_SCOPE"), None, None).await?;
   client.messages.get_messages(GetMessagesParams {
       region: Some("US,GB"),
       region_scopes: Some(r#"[{"region":"GB","channels":["virtualLongCode"]}]"#),

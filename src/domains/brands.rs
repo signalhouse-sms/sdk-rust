@@ -31,6 +31,7 @@ impl BrandsDomain {
     /// `registration_type` optionally filters by `"TEN_DLC"`, `"TOLL_FREE"`, or `"SHORT_CODE"`.
     ///
     /// Each brand carries `carrierSuspensions` (carrier brand suspension rules; active while liftedAt is null).
+    /// Each brand also carries `cnamName` (its caller name for numbers, or null; see `get_caller_name`).
     ///
     /// Each toll-free brand's `tollFree` carries `reviewsBusinessOnSubmit`: whether the brand is reviewed when it's
     /// submitted and keeps its business details from then on. When it's true, `tollFree` also carries the business
@@ -479,6 +480,81 @@ impl BrandsDomain {
                 &format!("/brand/appeal/{}", safe),
                 Method::POST,
                 form,
+                options,
+            )
+            .await
+    }
+
+    /// Read a brand's caller name (CNAM) and the numbers it applies to: every number whose caller
+    /// name comes from this brand (its campaign numbers, numbers it was picked on, and campaign-less
+    /// numbers of subgroups that use it as their default caller-ID brand). Resolves to
+    /// `{ brandId, companyName, cnamName, eligible, numbers: { total, items } }`; `items` lists the
+    /// first 100.
+    ///
+    /// Roles: api, admin, developer, billing, user.
+    ///
+    /// **GET** `/brand/cnam/:brandId`
+    pub async fn get_caller_name(
+        &self,
+        brand_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("brandId", Some(brand_id))])?;
+        let safe = urlencoding::encode(brand_id);
+        self.http
+            .request_json(&format!("/brand/cnam/{}", safe), Method::GET, None, options)
+            .await
+    }
+
+    /// Set a brand's caller name (CNAM). It replaces the caller name on every number whose caller
+    /// name comes from this brand, names set on a number included, and numbers that later come under
+    /// the brand get it too. The name may only remove characters from the brand's registered name and
+    /// must be 1-15 letters, digits, spaces, `-` or `_`; the brand must be verified. Numbers are
+    /// updated at the carrier in the background. Resolves to
+    /// `{ brandId, companyName, cnamName, eligible, numbers: { total, items } }`.
+    ///
+    /// Roles: api, admin, developer.
+    ///
+    /// **PUT** `/brand/cnam/:brandId`
+    pub async fn set_caller_name(
+        &self,
+        brand_id: &str,
+        name: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("brandId", Some(brand_id)), ("name", Some(name))])?;
+        let safe = urlencoding::encode(brand_id);
+        let body = serde_json::json!({ "name": name });
+        self.http
+            .request_json(
+                &format!("/brand/cnam/{}", safe),
+                Method::PUT,
+                Some(&body),
+                options,
+            )
+            .await
+    }
+
+    /// Remove a brand's caller name (CNAM). Numbers that had it go back to the automatic name if
+    /// their subgroup has caller name auto-apply on, otherwise to no caller name. Names set on a
+    /// number are kept. Resolves to
+    /// `{ brandId, companyName, cnamName, eligible, numbers: { total, items } }`.
+    ///
+    /// Roles: api, admin, developer.
+    ///
+    /// **DELETE** `/brand/cnam/:brandId`
+    pub async fn delete_caller_name(
+        &self,
+        brand_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("brandId", Some(brand_id))])?;
+        let safe = urlencoding::encode(brand_id);
+        self.http
+            .request_json(
+                &format!("/brand/cnam/{}", safe),
+                Method::DELETE,
+                None,
                 options,
             )
             .await

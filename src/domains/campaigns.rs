@@ -113,7 +113,10 @@ impl CampaignsDomain {
     /// tier, scope, unit, dailyLimit, thresholds, nextTier, usedToday: { date, segments, resetsAt }
     /// | null } }`. A null tier/limit means the carrier ladder does not apply (unverified brand,
     /// GOVERNMENT entity, PUBLIC_SAFETY_RESTRICTED usecase); a null nextTier means the top rung or
-    /// a usecase-capped (LOW_VOLUME) campaign.
+    /// a usecase-capped (LOW_VOLUME) campaign. `tmobile` also carries `sharedWith: [{ brandId, brandName }]` -
+    /// T-Mobile's counter is keyed per brand EIN, not per brand, so `sharedWith` lists other verified
+    /// brands in the same group that share this EIN and also carry a T-Mobile limit, since `usedToday`
+    /// is their combined total.
     ///
     /// **GET** `/campaign/throughput-limits?campaignId=...`
     pub async fn get_campaign_throughput_limits(
@@ -136,8 +139,8 @@ impl CampaignsDomain {
     }
 
     /// Get today's T-Mobile usage against the daily limit for every active campaign in a group that has one: the same limits and counter as `get_campaign_throughput_limits`, for the whole
-    /// group in one call. Returns `[{ campaignId, brandId, brandName, usecase, tmobile: { tier, dailyLimit, usedToday: { date, segments, resetsAt } } }]`.
-    /// Campaigns without a T-Mobile limit (unverified brand, GOVERNMENT entity, PUBLIC_SAFETY_RESTRICTED usecase) are left out. The counter is per brand EIN and UTC day, so every campaign of a brand shows the same usage; a LOW_VOLUME campaign's limit is 2,000 whatever the brand's score.
+    /// group in one call. Returns `[{ campaignId, brandId, brandName, usecase, tmobile: { tier, dailyLimit, usedToday: { date, segments, resetsAt }, sharedWith: [{ brandId, brandName }] } }]`.
+    /// Campaigns without a T-Mobile limit (unverified brand, GOVERNMENT entity, PUBLIC_SAFETY_RESTRICTED usecase) are left out. The counter is per brand EIN and UTC day, so every campaign of a brand shows the same usage; a LOW_VOLUME campaign's limit is 2,000 whatever the brand's score. `sharedWith` lists this brand's other group brands on the same EIN that also carry a T-Mobile limit, since `usedToday` is their combined total.
     ///
     /// **GET** `/campaign/throughput-usage?groupId=...`
     pub async fn get_group_throughput_usage(

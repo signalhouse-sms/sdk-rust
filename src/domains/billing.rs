@@ -60,6 +60,40 @@ impl BillingDomain {
             .await
     }
 
+    /// Get one group's transactions in a category, a page at a time. `category` takes
+    /// one category, or a comma-separated list: one of the RCS categories RCS_RICH_OUTBOUND, RCS_RICH_MEDIA_OUTBOUND, RCS_INBOUND, RCS_ACTION_CLICK, RCS_MEDIA_SURCHARGE, RCS_FEE_ONBOARDING, RCS_FEE_RENEWAL, RCS_SESSION_ADJUSTMENT or RCS_SESSION_CARRIER_ADJUSTMENT, or RCS_CARRIER_PASSTHROUGH for RCS carrier rows alone. Any other value is rejected with a 400.
+    ///
+    /// **GET** `/billing/wallet/transactionHistory?...`
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_transaction_history_by_category(
+        &self,
+        group_id: &str,
+        category: &str,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id)), ("category", Some(category))])?;
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", Some(group_id.to_string())),
+            ("category", Some(category.to_string())),
+            ("startDate", start_date.map(String::from)),
+            ("endDate", end_date.map(String::from)),
+            ("page", page.map(|value| value.to_string())),
+            ("limit", limit.map(|value| value.to_string())),
+        ]);
+        self.http
+            .request_json(
+                &format!("/billing/wallet/transactionHistory{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Get payment history (wallet recharge transactions) with server-side pagination.
     ///
     /// **GET** `/billing/wallet/paymentHistory?...`
