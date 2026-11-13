@@ -331,6 +331,22 @@ pub struct GetDncRecordsParams<'a> {
     pub region_scopes: Option<&'a str>,
 }
 
+/// Parameters for [`MessagesDomain::get_consent_records`]. `group_id` is required.
+#[derive(Debug, Default)]
+pub struct GetConsentRecordsParams<'a> {
+    pub group_id: Option<&'a str>,
+    /// Filter to one handset, in any spelling; it is matched on its digits.
+    pub recipient_phone_number: Option<&'a str>,
+    /// Filter on `occurredAt`. A bare date is its whole UTC day; a timestamp is bound as sent.
+    pub start_date: Option<&'a str>,
+    /// Filter on `occurredAt`. A bare date is its whole UTC day; a timestamp is bound as sent.
+    pub end_date: Option<&'a str>,
+    /// Page number (default 1).
+    pub page: Option<u32>,
+    /// Records per page (default 100, max 500).
+    pub limit: Option<u32>,
+}
+
 /// Optional parameters for [`MessagesDomain::get_dnc_analytics`].
 #[derive(Debug, Default)]
 pub struct GetDncAnalyticsParams<'a> {
@@ -446,7 +462,8 @@ impl MessagesDomain {
 
     /// Get one message of any type by its ID; an unknown ID is a 404. An outbound RCS message and its
     /// fallback leg also carry `costBreakdown`, `{ legs: [{ messageId, channel, billed, billingClass, segments, baseMicros, carrierMicros, rated }] }`,
-    /// which is `null` when it cannot be computed.
+    /// which is `null` when it cannot be computed. A settled RCS message also carries
+    /// `carrierFeeMicros`: the carrier pass-through and media surcharge it was charged.
     ///
     /// **GET** `/message/:id`
     pub async fn get_message(
@@ -758,6 +775,46 @@ impl MessagesDomain {
         ]);
         self.http
             .request_json(&format!("/message/dnc{}", qs), Method::GET, None, options)
+            .await
+    }
+
+    /// Export the group's consent ledger, newest first.
+    ///
+    /// **GET** `/message/dnc/consent-records?...`
+    ///
+    /// One append-only record per opt-out or opt-in instruction a recipient gave: a STOP or START
+    /// keyword, or the confirmation of an opt-out link. The ledger records only; sends do not read
+    /// it. The response is `{ data, total, page, limit }`. Each record carries `groupId`,
+    /// `subgroupId`, `recipientPhoneNumber` (the handset, digits), `phoneNumber` (the business
+    /// number, or the RCS agent id, that received the instruction), `scope` `{ type, id }`
+    /// (CAMPAIGN, AGENT or SUBGROUP, with that campaign, agent or subgroup id), `clearedScopes`
+    /// (for OPT_IN, every `{ type, id }` the START cleared; empty for OPT_OUT), `action` (OPT_OUT
+    /// or OPT_IN), `source` (KEYWORD or LINK), `keyword` ("LINK" for a link), `messageType` (SMS,
+    /// MMS or RCS), `messageId` (the inbound message id; for a link, the opt-out link's id),
+    /// `actor` `{ type: "RECIPIENT" }`, `occurredAt` and `createdAt`.
+    pub async fn get_consent_records(
+        &self,
+        params: GetConsentRecordsParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", params.group_id.map(String::from)),
+            (
+                "recipientPhoneNumber",
+                params.recipient_phone_number.map(String::from),
+            ),
+            ("startDate", params.start_date.map(String::from)),
+            ("endDate", params.end_date.map(String::from)),
+            ("page", params.page.map(|p| p.to_string())),
+            ("limit", params.limit.map(|l| l.to_string())),
+        ]);
+        self.http
+            .request_json(
+                &format!("/message/dnc/consent-records{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
             .await
     }
 

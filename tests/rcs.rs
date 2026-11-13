@@ -192,6 +192,15 @@ async fn get_update_validate_submit_and_archive_address_the_agent() {
     );
     assert!(rejected(offline().rcs.agents.launch("", None).await));
 
+    let wire = capture!(client => client.rcs.agents.request_carrier_update(AGENT, None));
+    assert_eq!(
+        request_line(&wire),
+        format!("POST /registration/{AGENT}/carrier-update")
+    );
+    assert!(rejected(
+        offline().rcs.agents.request_carrier_update("", None).await
+    ));
+
     let wire = capture!(client => client.rcs.agents.launch_acknowledging_fees(AGENT, None));
     assert_eq!(
         request_line(&wire),
@@ -263,6 +272,10 @@ async fn get_update_validate_submit_and_archive_address_the_agent() {
 
     let wire = capture!(client => client.rcs.agents.get("RCSA/1", None));
     assert_eq!(request_line(&wire), "GET /rcs/agent/RCSA%2F1");
+
+    let wire = capture!(client => client.rcs.agents.create_entry_points("RCSA/1", None, None));
+    assert_eq!(request_line(&wire), "POST /rcs/agent/RCSA%2F1/entry-points");
+    assert_eq!(body(&wire), json!({}));
 }
 
 #[tokio::test]
@@ -339,6 +352,9 @@ async fn missing_inputs_fail_before_transport() {
     assert!(rejected(agents.resend_tester_invite(AGENT, "", None).await));
     assert!(rejected(agents.remove_tester(AGENT, "", None).await));
     assert!(rejected(
+        agents.create_entry_points("", Some("Hi there"), None).await
+    ));
+    assert!(rejected(
         agents
             .upload_asset(AGENT, "", b"PNG".to_vec(), None, None)
             .await
@@ -401,6 +417,30 @@ async fn send_posts_the_given_fields() {
             "statusCallbackUrl": "https://example.com/cb", "enableShortlink": false, "isTest": true,
             "simulate": "delivered",
         })
+    );
+}
+
+#[tokio::test]
+async fn send_batch_posts_the_send_body() {
+    let recipients = [json!({ "phoneNumber": "+15125550199" })];
+    let options = RequestOptions {
+        idempotency_key: Some("k2".into()),
+        ..Default::default()
+    };
+    let wire = capture!(client => client.rcs.messages.send_batch(
+        SendRcsMessageParams {
+            agent_id: AGENT,
+            recipients: &recipients,
+            template_id: Some("T1"),
+            ..Default::default()
+        },
+        Some(&options),
+    ));
+    assert_eq!(request_line(&wire), "POST /message/rcs/batch");
+    assert!(wire.to_lowercase().contains("idempotency-key: k2"));
+    assert_eq!(
+        body(&wire),
+        json!({ "agentId": AGENT, "recipients": recipients, "templateId": "T1" })
     );
 }
 
@@ -629,6 +669,17 @@ async fn missing_message_inputs_fail_before_transport() {
             )
             .await
     ));
+    assert!(rejected(
+        messages
+            .send_batch(
+                SendRcsMessageParams {
+                    agent_id: AGENT,
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+    ));
     assert!(rejected(messages.estimate(Default::default(), None).await));
     assert!(rejected(
         messages.capabilities("", &["+15125550199"], None).await
@@ -717,6 +768,7 @@ async fn run_fixture(operation: &str, input: &Value) -> String {
     let testers = strings(input, "testers");
     let result = match operation {
         "messages.send" => messages.send(send_params(input), None).await,
+        "messages.sendBatch" => messages.send_batch(send_params(input), None).await,
         "messages.validate" => messages.validate(send_params(input), None).await,
         "messages.estimate" => {
             let params = EstimateRcsMessageParams {
@@ -773,7 +825,9 @@ async fn run_fixture(operation: &str, input: &Value) -> String {
             let params = UpdateRcsAgentParams {
                 agent_id,
                 agent: object(input, "agent"),
+                consent: object(input, "consent"),
                 testers: testers.as_deref(),
+                autofill: object(input, "autofill"),
                 ..Default::default()
             };
             agents.update(params, None).await
@@ -789,7 +843,13 @@ async fn run_fixture(operation: &str, input: &Value) -> String {
                 .launch_acknowledging(agent_id, acknowledgements, None)
                 .await
         }
+        "agents.requestCarrierUpdate" => agents.request_carrier_update(agent_id, None).await,
         "agents.archive" => agents.archive(agent_id, None).await,
+        "agents.createEntryPoints" => {
+            agents
+                .create_entry_points(agent_id, text(input, "body"), None)
+                .await
+        }
         "agents.resendTesterInvite" => agents.resend_tester_invite(agent_id, phone, None).await,
         "agents.removeTester" => agents.remove_tester(agent_id, phone, None).await,
         other => panic!("no adapter for {other}"),

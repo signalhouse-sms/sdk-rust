@@ -3,7 +3,7 @@
 use signalhouse_sms::domains::messages::{
     GetAnalyticsByErrorCodeParams, GetAnalyticsBySubgroupParams, GetAnalyticsDetailParams,
     GetAnalyticsFilterOptionsParams, GetAnalyticsParams, GetAnalyticsThroughputParams,
-    GetDncAnalyticsParams, GetDncRecordsParams, GetMessagesParams,
+    GetConsentRecordsParams, GetDncAnalyticsParams, GetDncRecordsParams, GetMessagesParams,
 };
 use signalhouse_sms::domains::registrations::GetRegistrationsParams;
 use signalhouse_sms::{RequestOptions, SignalHouseClient, SignalHouseConfig};
@@ -187,6 +187,49 @@ async fn regional_reads_send_region_and_scopes() {
     assert_eq!(
         target(&request.join().unwrap()),
         "/message/dnc?groupId=G1&region=GB&regionScopes=%5B%5D"
+    );
+}
+
+#[tokio::test]
+async fn consent_records_send_their_filters() {
+    let (client, request) = capture_server();
+    client
+        .messages
+        .get_consent_records(
+            GetConsentRecordsParams {
+                group_id: Some("G1"),
+                recipient_phone_number: Some("15555550100"),
+                start_date: Some("2026-12-01"),
+                end_date: Some("2026-12-31"),
+                page: Some(2),
+                limit: Some(50),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let wire = request.join().unwrap();
+    assert!(wire.starts_with("GET "));
+    assert_eq!(
+        target(&wire),
+        "/message/dnc/consent-records?groupId=G1&recipientPhoneNumber=15555550100&startDate=2026-12-01&endDate=2026-12-31&page=2&limit=50"
+    );
+
+    let (client, request) = capture_server();
+    client
+        .messages
+        .get_consent_records(
+            GetConsentRecordsParams {
+                group_id: Some("G1"),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        target(&request.join().unwrap()),
+        "/message/dnc/consent-records?groupId=G1"
     );
 }
 

@@ -92,6 +92,7 @@ again. Keys are scoped to the authenticated user and kept for 24 hours.
 | `subscriptions` | Subscription plans and billing |
 | `templates` | Versioned message templates (`/template`): drafts, publish, validate, media |
 | `users` | User CRUD and notification preferences |
+| `verify` | Carrier phone-number checks (`/verify`): SIM Swap and Number Verify (phone on mobile data; each answered check is billed) |
 | `webhooks` | Webhook CRUD |
 
 ## Admin Feature

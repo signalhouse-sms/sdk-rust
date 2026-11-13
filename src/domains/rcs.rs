@@ -40,6 +40,10 @@ pub struct CreateRcsAgentParams<'a> {
     pub excluded_carriers: Option<&'a [&'a str]>,
     /// Tester numbers (up to 200), invited once the agent exists at the carrier.
     pub testers: Option<&'a [&'a str]>,
+    /// Where the fields you prefilled came from, by path (`consent.optInDetails`):
+    /// `{ source (brand, campaign or landing), sourceId, at, edited }`. The API adds its own for
+    /// the fields it fills.
+    pub autofill: Option<&'a Value>,
 }
 
 /// Filters for [`RcsAgentsDomain::list`].
@@ -84,15 +88,19 @@ pub struct UpdateRcsAgentParams<'a> {
     /// `[]` or `["T_MOBILE"]` (the carrier partner's carrier name).
     pub excluded_carriers: Option<&'a [&'a str]>,
     pub testers: Option<&'a [&'a str]>,
+    /// Replaces the prefill markers; `None` keeps the stored ones, and a changed field's marker
+    /// turns edited.
+    pub autofill: Option<&'a Value>,
 }
 
-/// Parameters for [`RcsMessagesDomain::send`] and [`RcsMessagesDomain::validate`]. Unset fields are
-/// left out of the body.
+/// Parameters for [`RcsMessagesDomain::send`], [`RcsMessagesDomain::send_batch`] and
+/// [`RcsMessagesDomain::validate`]. Unset fields are left out of the body.
 #[derive(Debug, Default)]
 pub struct SendRcsMessageParams<'a> {
     /// The agent that sends (`RCSA…`). Required.
     pub agent_id: &'a str,
-    /// Up to 100 recipients, each `{ phoneNumber, variables?, clientMessageId?, metadata? }`. Required.
+    /// Up to 100 recipients (10,000 on `send_batch`), each `{ phoneNumber, variables?,
+    /// clientMessageId?, metadata? }`. Required.
     pub recipients: &'a [Value],
     /// A template to send; exactly one of `template_id` or `content`.
     pub template_id: Option<&'a str>,
@@ -279,7 +287,8 @@ impl RcsAgentsDomain {
             .await
     }
 
-    /// Get one agent with the live state of its brand and campaign links.
+    /// Get one agent with the live state of its brand and campaign links. `googleAgentId` is
+    /// Google's id for the agent, `null` until Google has created it.
     ///
     /// **GET** `/rcs/agent/:agentId`
     pub async fn get(
@@ -297,6 +306,9 @@ impl RcsAgentsDomain {
     /// or an agent in testing (the change is pushed to the carrier partner). `agent`, `consent` and
     /// `contact` merge field by field; every other key replaces. 409 in any other status; `brand_id`
     /// is locked once the agent exists at the partner and `billing_category` once a launch was requested.
+    /// After a carrier rejected a launch other carriers took (`PARTIALLY_LAUNCHED` with a `REJECTED`
+    /// carrier), only `consent` and `contact` may change, and nothing is pushed: send them with
+    /// `request_carrier_update`.
     ///
     /// **PUT** `/rcs/agent/:agentId`
     pub async fn update(
@@ -312,7 +324,9 @@ impl RcsAgentsDomain {
     }
 
     /// Check an agent against every submit requirement without writing; returns `{ valid,
-    /// errors: [{ field, reason }], warnings: [{ field, reason }] }`.
+    /// errors: [{ field, reason, code? }], warnings: [{ field, reason }] }`. A copy-rule error at the
+    /// launch gate carries the carrier partner's key as `code` (for example
+    /// `OPT_IN_MSG_RATE_DISCL_MISSING`).
     ///
     /// **POST** `/rcs/agent/:agentId/validate`
     pub async fn validate(
@@ -330,6 +344,8 @@ impl RcsAgentsDomain {
     /// `AGENT_CREATING`, then `IN_TESTING` once the partner reports it ready). It needs the full
     /// profile, a use case and a billing category; otherwise a 400 whose details carry
     /// `{ code: "REGISTRATION_INCOMPLETE", errors, warnings }`.
+    /// A group that has not finished account verification gets a 403 with code `GROUP_UNVERIFIED`,
+    /// and a rejected one a 403 with code `GROUP_REJECTED`; a pending verification passes.
     ///
     /// **POST** `/rcs/agent/:agentId/submit`
     pub async fn submit(
@@ -347,7 +363,10 @@ impl RcsAgentsDomain {
     /// House review (status `PENDING_REVIEW`), whose approval files the launch with the carrier
     /// partner. Allowed from `IN_TESTING`, `REJECTED` and `CARRIER_REJECTED` (409 otherwise); a
     /// failed requirement is a 400 whose details carry `{ code: "REGISTRATION_INCOMPLETE", errors,
-    /// warnings }`. The agent is a registration, so this is the registration's launch route.
+    /// warnings }`, and a copy-rule error carries the carrier partner's key as its `code` (for
+    /// example `OPT_IN_MSG_RATE_DISCL_MISSING`). A group that has not finished account verification
+    /// gets a 403 with code `GROUP_UNVERIFIED`, and a rejected one a 403 with code `GROUP_REJECTED`.
+    /// The agent is a registration, so this is the registration's launch route.
     /// The request charges the agent's launch fees: a wallet that cannot cover them gets a 402, and the agent stays where it is. When any fee is due the request must set the acknowledgement (see `launch_acknowledging_fees`), or it gets a 400 with code FEE_ACKNOWLEDGEMENT_REQUIRED and nothing is held; a launch with nothing due needs no acknowledgement. The agent's launchFees quotes what the next request charges.
     /// When the agent's brand vertical is healthcare or insurance, the launch needs the protected health information (PHI) disclosure acknowledged: use `launch_acknowledging` with `phi` set, or the request gets a 400 REGISTRATION_INCOMPLETE whose errors name `consent.phiAcknowledgement`. The API records the acknowledgement as `consent.phiAcknowledgement { acknowledgedAt, acknowledgedBy }` from the caller; the client sends only the boolean, and an agent update cannot set it. Once recorded, a later launch request needs no new acknowledgement.
     ///
@@ -377,6 +396,29 @@ impl RcsAgentsDomain {
         let payload = json!({ "acknowledgeFees": true });
         self.http
             .request_json(&path, Method::POST, Some(&payload), options)
+            .await
+    }
+
+    /// Send Signal House the corrected launch answers after a carrier rejected a launch other
+    /// carriers took. The carrier partner takes no change through its API once a carrier launched,
+    /// so Signal House emails it the update; edit `consent` and `contact` first. The agent's
+    /// `carrierUpdate` reads `REQUESTED` for the rejected carriers, then `SENT` once Signal House
+    /// sent it. 409 when no carrier is `REJECTED` after a partial launch, or an update already
+    /// waits. Returns the agent's registration, with `data.carrierUpdate`.
+    ///
+    /// **POST** `/registration/:agentId/carrier-update`
+    pub async fn request_carrier_update(
+        &self,
+        agent_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("agentId", Some(agent_id))])?;
+        let path = format!(
+            "/registration/{}/carrier-update",
+            urlencoding::encode(agent_id)
+        );
+        self.http
+            .request_json(&path, Method::POST, None, options)
             .await
     }
 
@@ -411,6 +453,29 @@ impl RcsAgentsDomain {
         let path = format!("{}/archive", agent_path(agent_id)?);
         self.http
             .request_json(&path, Method::POST, None, options)
+            .await
+    }
+
+    /// Make the links that start a chat with the agent and return `{ googleAgentId, deepLink,
+    /// shortLink }`: an `sms:` deep link in Google's format, and a short link that redirects to it,
+    /// for a QR code. With the agent's `defaultFallback.from`, the deep link names that number, so a
+    /// handset that cannot reach the agent texts it. `body` (max 1,000 characters) is the message
+    /// the chat opens with. The same request returns the same short link. The links reach approved
+    /// testers until a carrier launches the agent. 409 with code `GOOGLE_AGENT_PENDING` before
+    /// Google has created the agent.
+    ///
+    /// **POST** `/rcs/agent/:agentId/entry-points`
+    pub async fn create_entry_points(
+        &self,
+        agent_id: &str,
+        body: Option<&str>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let path = format!("{}/entry-points", agent_path(agent_id)?);
+        let mut payload = Map::new();
+        set(&mut payload, "body", body);
+        self.http
+            .request_json(&path, Method::POST, Some(&Value::Object(payload)), options)
             .await
     }
 
@@ -513,6 +578,29 @@ impl RcsMessagesDomain {
             .await
     }
 
+    /// Send an RCS message to up to 10,000 recipients in the background (HTTP 202) and return
+    /// `{ bulkId, status: "ACCEPTED", recipientCount }`. The request runs `send`'s request checks,
+    /// splits the recipients into chunks of 100 and queues each chunk. Every message carries the
+    /// shared `bulkId`; track progress with the messages list filtered by `bulkId`
+    /// (`GET /message?bulkId=`) and per-message webhooks. A chunk the wallet cannot cover, or that
+    /// is refused after acceptance, gets `BLOCKED` messages with `blockReason`
+    /// `INSUFFICIENT_FUNDS` or `SEND_REFUSED`; a chunk that keeps failing gets `SEND_FAILED`. A
+    /// recipient from 19999990000 to 19999990359 makes the whole request a simulation, as on
+    /// `send`. Set `RequestOptions.idempotency_key` to make a retry safe (same `bulkId`, no
+    /// duplicate sends); a retry without one may send duplicates.
+    ///
+    /// **POST** `/message/rcs/batch`
+    pub async fn send_batch(
+        &self,
+        params: SendRcsMessageParams<'_>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let payload = send_body(&params)?;
+        self.http
+            .request_json("/message/rcs/batch", Method::POST, Some(&payload), options)
+            .await
+    }
+
     /// Run a send's checks without writing anything or holding funds. Returns `{ valid, errors,
     /// warnings, billingClass, segments, estimatedCostMicros, unsupportedFiles, recipients }`.
     /// `valid` is true only with no errors; each blocked recipient adds an error and carries
@@ -612,7 +700,8 @@ impl RcsMessagesDomain {
     }
 
     /// Get one message by its ID; an unknown ID is a 404. The same route as
-    /// `client.messages.get_message`.
+    /// `client.messages.get_message`. A settled RCS message carries `carrierFeeMicros`, the carrier
+    /// pass-through and media surcharge it was charged.
     ///
     /// **GET** `/message/:messageId`
     pub async fn get(
@@ -700,6 +789,7 @@ fn create_body(params: &CreateRcsAgentParams<'_>) -> Result<Value, SignalHouseEr
     set(&mut body, "defaultFallback", params.default_fallback);
     set(&mut body, "excludedCarriers", params.excluded_carriers);
     set(&mut body, "testers", params.testers);
+    set(&mut body, "autofill", params.autofill);
     Ok(Value::Object(body))
 }
 
@@ -717,6 +807,7 @@ fn update_body(params: &UpdateRcsAgentParams<'_>) -> Value {
     set(&mut body, "defaultFallback", params.default_fallback);
     set(&mut body, "excludedCarriers", params.excluded_carriers);
     set(&mut body, "testers", params.testers);
+    set(&mut body, "autofill", params.autofill);
     Value::Object(body)
 }
 

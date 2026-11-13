@@ -22,6 +22,7 @@ use crate::domains::subscriptions::SubscriptionsDomain;
 use crate::domains::templates::TemplatesDomain;
 use crate::domains::tickets::TicketsDomain;
 use crate::domains::users::UsersDomain;
+use crate::domains::verify::VerifyDomain;
 use crate::domains::voice::VoiceDomain;
 use crate::domains::webhooks::WebhooksDomain;
 use crate::error::SignalHouseError;
@@ -233,6 +234,8 @@ pub struct SignalHouseClient {
     pub templates: TemplatesDomain,
     pub tickets: TicketsDomain,
     pub users: UsersDomain,
+    /// Carrier phone-number checks on `/verify`: SIM Swap and Number Verify.
+    pub verify: VerifyDomain,
     pub voice: VoiceDomain,
     pub webhooks: WebhooksDomain,
 }
@@ -279,6 +282,7 @@ impl SignalHouseClient {
             templates: TemplatesDomain::new(Arc::clone(&http)),
             tickets: TicketsDomain::new(Arc::clone(&http)),
             users: UsersDomain::new(Arc::clone(&http)),
+            verify: VerifyDomain::new(Arc::clone(&http)),
             voice: VoiceDomain::new(Arc::clone(&http)),
             webhooks: WebhooksDomain::new(Arc::clone(&http)),
         })

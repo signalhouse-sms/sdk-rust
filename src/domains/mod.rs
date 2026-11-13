@@ -17,5 +17,6 @@ pub mod subscriptions;
 pub mod templates;
 pub mod tickets;
 pub mod users;
+pub mod verify;
 pub mod voice;
 pub mod webhooks;
