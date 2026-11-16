@@ -630,7 +630,7 @@ impl RcsMessagesDomain {
     /// body. The fallback's `from` is optional for an estimate: with none, the fallback leg is
     /// priced on the channel of the agent's linked campaign. `rcsLeg.mediaSurcharge` is the
     /// carrier's surcharge on media over 5 MB for one recipient, and `rcsLeg.cost` already holds it for every recipient; `rcsLeg.cost` is null with the fallback mode sms_only; a message over 100 MB
-    /// adds a `MEDIA_TOO_LARGE` issue.
+    /// adds a `MEDIA_TOO_LARGE` issue, and an external media URL that redirects adds a `MEDIA_REDIRECT` issue.
     ///
     /// **POST** `/message/estimate`
     pub async fn estimate(

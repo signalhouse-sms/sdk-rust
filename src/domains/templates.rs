@@ -139,7 +139,8 @@ impl TemplatesDomain {
     /// an incomplete draft is a 400 `TEMPLATE_INVALID` carrying `errors` and `warnings`. A block
     /// whose text or image the Moderation API flags is an error with code `CONTENT_POLICY_FLAGGED`,
     /// whose message names the category ("Content moderation flagged this text: spam"). The check
-    /// passes when the Moderation API fails.
+    /// passes when the Moderation API fails. An image URL with a variable is moderated at send
+    /// instead, with its value filled in, and a refused image blocks the recipient with `MODERATION`.
     ///
     /// **POST** `/template/:templateId/publish`
     pub async fn publish(
@@ -281,7 +282,8 @@ impl TemplatesDomain {
             .await
     }
 
-    /// Upload one template media file (multipart `file` + `groupId`); returns the MediaAsset (HTTP 201).
+    /// Upload one template media file (multipart `file` + `groupId`); returns the MediaAsset (HTTP 201). An image over
+    /// 1920 px or 5,000,000 bytes is stored compressed; `variants.mms` is the MMS copy of an image over the MMS size limit.
     ///
     /// **POST** `/template/media`
     pub async fn upload_media(

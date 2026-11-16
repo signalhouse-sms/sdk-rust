@@ -445,6 +445,26 @@ impl BrandsDomain {
             .await
     }
 
+    /// Get TCR's identity feedback for a brand: why TCR could not verify it (status UNVERIFIED).
+    ///
+    /// **GET** `/brand/feedback/:brandId`
+    pub async fn get_brand_feedback(
+        &self,
+        brand_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("brandId", Some(brand_id))])?;
+        let safe = urlencoding::encode(brand_id);
+        self.http
+            .request_json(
+                &format!("/brand/feedback/{}", safe),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Submit an appeal for a brand (multipart).
     ///
     /// **POST** `/brand/appeal/:brandId`
