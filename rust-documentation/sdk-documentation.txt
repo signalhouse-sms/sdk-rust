@@ -373,6 +373,9 @@ BRANDS  (client.brands)
       explanation, file }, options) -> Result<SignalHouseResponse>
     Submit a brand identity status appeal with supporting documentation.
     Uses multipart/form-data automatically.
+    TCR refusal: a 4xx (e.g. TCR code 592, brand older than 45 days) returns
+      { error: "TCR refused the appeal: <reason>", details: { code, message } }
+      with TCR's own code and message. Retrying unchanged will be refused again.
     appeal_categories: Vec<String> (VERIFY_TAX_ID, VERIFY_NON_PROFIT, VERIFY_GOVERNMENT)
     explanation: &str (max 1024 chars)
     file: Vec<u8> or file path (supported: .jpg, .jpeg, .png, .bmp, .raw, .tiff, .pdf, .docx, .htm, .odt, .rtf, .txt, .xml)
@@ -406,6 +409,56 @@ CAMPAIGNS  (client.campaigns)
     Sends a POST to /campaign/nudge/:campaignId.
     No request body required.
     Returns 200: { message: "Nudge successful" }
+
+
+COMPLIANCE  (client.compliance)
+--------------------------------------------------------------------------------
+  Compliance cases under /compliance. Signal House opens a case when a carrier
+  suspends one of your objects, a carrier escalates a message, or Signal House
+  needs something from you. You read your cases, answer their requirements and
+  upload files; only Signal House opens, works and closes them.
+
+  Number release closes that number's alerts immediately. Eligible cases have
+  closeReason NUMBER_RELEASED; shared cases stay open for other alerts,
+  requirements or review. Released blocks include numberReleasedAt without
+  inventing liftedAt.
+
+  get_cases(GetComplianceCasesParams { group_id, status, stage, object_type,
+      object_id, subgroup_id, suspended, from, to, sort, page, limit },
+      options) -> Result<SignalHouseResponse>
+    GET /compliance/cases. Newest first. status OPEN|LIFT_REQUESTED|CLOSED;
+    stage new|customer|ready|lift_requested|closed; object_type
+    CAMPAIGN|BRAND|NUMBER|RCS_AGENT|SUBGROUP; suspended: true for cases with an
+    open suspension or hold, false for the rest; from/to ISO 8601; sort
+    createdAt (default)|fixBy|severity; limit 1-200. group_id defaults to your
+    active group. Returns { data, total, page, limit, totalPages,
+    counts: { open, waitingOnYou } }. Roles: api, admin, developer, billing,
+    user.
+
+  get_case(case_id, options) -> Result<SignalHouseResponse>
+    GET /compliance/cases/:caseId. Returns the case: its stage, suspensions,
+    tickets and requirements. Roles: api, admin, developer, billing, user.
+
+  answer_requirement(case_id, requirement_id, answer: Option<&str>,
+      file_ids: Option<&[String]>, options) -> Result<SignalHouseResponse>
+    PUT /compliance/cases/:caseId/requirements/:requirementId. Answer one
+    requirement with a note (answer, up to 2,000 characters), files (fileIds,
+    up to 10 from upload_file, on this case), or both; only the given keys are
+    sent. A RECORDS requirement needs a file or a note. Returns the case.
+    Roles: api, admin, developer, user.
+
+  upload_file(case_id, requirement_id: Option<&str>, file: Vec<u8>,
+      filename: String, options) -> Result<SignalHouseResponse>
+    POST /compliance/files (multipart: caseId, requirementId when given, file).
+    CSV, XLSX, PDF, PNG, JPG or TXT, up to 10 MB. Returns { fileId, fileName,
+    mimeType, size }; pass fileId in file_ids when you answer the requirement.
+    Roles: api, admin, developer, user.
+
+  get_file(file_id, options) -> Result<SignalHouseFileResponse>
+    GET /compliance/files/:fileId. data contains Some(Vec<u8>) with the exact
+    file bytes on success. HTTP failures keep data None and the normal error
+    and status fields. JSON methods retain SignalHouseResponse.
+    Roles: api, admin, developer, billing, user.
 
 
 GROUPS  (client.groups)
@@ -1202,6 +1255,7 @@ WEBHOOKS  (client.webhooks)
     - client.landings.update_landing(...)
     - client.brands.submit_appeal(...)
     - client.templates.upload_media(...)
+    - client.compliance.upload_file(...)
 
   You do not need to construct reqwest::multipart::Form manually. Pass file
   data as byte vectors or file paths and the SDK builds the multipart form

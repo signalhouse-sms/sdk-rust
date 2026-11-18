@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::client::HttpClient;
 
 pub mod analytics;
+pub mod call_flows;
 pub mod call_logs;
 pub mod calls;
 pub mod global_voice_settings;
@@ -13,6 +14,7 @@ pub mod sip_trunks;
 pub mod tokens;
 
 pub use analytics::{AnalyticsDomain, VoiceAnalyticsParams};
+pub use call_flows::{CallFlowsDomain, ListCallFlowsParams};
 pub use call_logs::{CallLogsDomain, ListCallLogsParams};
 pub use calls::{CallsDomain, ListCallsParams};
 pub use global_voice_settings::GlobalVoiceSettingsDomain;
@@ -29,6 +31,7 @@ pub use tokens::TokensDomain;
 /// * `client.voice.sip_profiles`               — SIP profile / endpoint (single registerable UA).
 /// * `client.voice.programmable_voice_profiles` — Programmable Voice Profile (route a set of numbers through Signal House).
 /// * `client.voice.number_routes`              — Per-number inbound route (overrides the profile and subgroup settings).
+/// * `client.voice.call_flows`                 — Call flows: customer-built call trees a number or profile can run.
 /// * `client.voice.calls`                      — Outbound call origination + call log queries.
 /// * `client.voice.call_logs`                  — Account-scoped voice call history (cost, recording, attribution).
 /// * `client.voice.analytics`                  — Aggregated call metrics (summary tiles + byDate/byNumber/byCarrier breakdowns).
@@ -39,6 +42,7 @@ pub struct VoiceDomain {
     pub sip_profiles: SipProfilesDomain,
     pub programmable_voice_profiles: ProgrammableVoiceProfilesDomain,
     pub number_routes: NumberRoutesDomain,
+    pub call_flows: CallFlowsDomain,
     pub calls: CallsDomain,
     pub call_logs: CallLogsDomain,
     pub analytics: AnalyticsDomain,
@@ -53,6 +57,7 @@ impl VoiceDomain {
             sip_profiles: SipProfilesDomain::new(Arc::clone(&http)),
             programmable_voice_profiles: ProgrammableVoiceProfilesDomain::new(Arc::clone(&http)),
             number_routes: NumberRoutesDomain::new(Arc::clone(&http)),
+            call_flows: CallFlowsDomain::new(Arc::clone(&http)),
             calls: CallsDomain::new(Arc::clone(&http)),
             call_logs: CallLogsDomain::new(Arc::clone(&http)),
             analytics: AnalyticsDomain::new(Arc::clone(&http)),

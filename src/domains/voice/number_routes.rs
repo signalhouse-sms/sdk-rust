@@ -50,15 +50,18 @@ impl NumberRoutesDomain {
     /// `e164` is optional.
     ///
     /// `route_data` keys: `routeAction` (required: `"FORWARD"`, `"WEBRTC"`,
-    /// `"SIP_TRUNK"`, `"SIP_PROFILE"`, `"CALL_CONTROL"`, `"AI"`, or
-    /// `"VOICEMAIL"`); optional `forwardToE164` (required for FORWARD, or the
+    /// `"SIP_TRUNK"`, `"SIP_PROFILE"`, `"CALL_CONTROL"`, `"AI"`, `"VOICEMAIL"`,
+    /// or `"CALL_FLOW"`); optional `forwardToE164` (required for FORWARD, or the
     /// WEBRTC no-answer destination when `noAnswerAction` is `"FORWARD"`),
     /// `noAnswerAction` (WEBRTC only: `"VOICEMAIL"` | `"FORWARD"` |
     /// `"KEEP_RINGING"`, default `"VOICEMAIL"`), `noAnswerSeconds` (WEBRTC only:
     /// integer 5-120, default 20), `routeSipTrunkId` (required for SIP_TRUNK),
     /// `routeSipProfileId` (required for SIP_PROFILE), `webhookUrl` (SHML program
     /// URL; required for CALL_CONTROL), `routeAgentProfileId` (AI agent profile
-    /// id, `AGP…`; required for AI), `recordingEnabled`. Unset fields must be
+    /// id, `AGP…`; required for AI), `routeCallFlowId` (call flow in the
+    /// number's subgroup; required for CALL_FLOW. Until the flow is published,
+    /// calls fall through to the number's profile or subgroup settings),
+    /// `recordingEnabled`. Unset fields must be
     /// omitted or `null`. Returns `{ "e164", "route": {...}, "effective": {...} }`.
     ///
     /// **PUT** `/voice/api/v1/numbers/:e164/route`

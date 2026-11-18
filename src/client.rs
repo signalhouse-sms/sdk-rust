@@ -8,6 +8,7 @@ use crate::domains::auth::AuthDomain;
 use crate::domains::billing::BillingDomain;
 use crate::domains::brands::BrandsDomain;
 use crate::domains::campaigns::CampaignsDomain;
+use crate::domains::compliance::ComplianceDomain;
 use crate::domains::groups::GroupsDomain;
 use crate::domains::landings::LandingsDomain;
 use crate::domains::messages::MessagesDomain;
@@ -27,7 +28,7 @@ use crate::domains::voice::VoiceDomain;
 use crate::domains::webhooks::WebhooksDomain;
 use crate::error::SignalHouseError;
 use crate::request_options::RequestOptions;
-use crate::response::SignalHouseResponse;
+use crate::response::{SignalHouseFileResponse, SignalHouseResponse};
 
 // ---------------------------------------------------------------------------
 // Internal HTTP helper shared across all domain structs via Arc
@@ -136,6 +137,48 @@ impl HttpClient {
         }
     }
 
+    /// Download exact bytes; HTTP failures use the same decoder as JSON requests.
+    pub async fn request_file(
+        &self,
+        path: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseFileResponse, SignalHouseError> {
+        let token = options
+            .and_then(|o| o.token.as_deref())
+            .unwrap_or(&self.api_key);
+        let mut builder = self
+            .client
+            .get(format!("{}{}", self.base_url, path))
+            .bearer_auth(token);
+        if let Some(opts) = options {
+            if let Some(ref headers) = opts.headers {
+                for (key, value) in headers {
+                    builder = builder.header(key.as_str(), value.as_str());
+                }
+            }
+            if let Some(ref key) = opts.idempotency_key {
+                builder = builder.header("Idempotency-Key", key.as_str());
+            }
+        }
+        let response = builder.send().await?;
+        let status = response.status().as_u16();
+        if response.status().is_success() {
+            return Ok(SignalHouseFileResponse {
+                success: true,
+                data: Some(response.bytes().await?.to_vec()),
+                error: None,
+                status,
+            });
+        }
+        let error = Self::parse_response(response).await?;
+        Ok(SignalHouseFileResponse {
+            success: false,
+            data: None,
+            error: error.error,
+            status,
+        })
+    }
+
     /// Validate that every named field has a non-empty value. Returns
     /// `Err(SignalHouseError::Validation)` on the first missing field.
     pub fn require(fields: &[(&str, Option<&str>)]) -> Result<(), SignalHouseError> {
@@ -218,6 +261,8 @@ pub struct SignalHouseClient {
     pub billing: BillingDomain,
     pub brands: BrandsDomain,
     pub campaigns: CampaignsDomain,
+    /// Compliance cases on `/compliance`: read cases, answer requirements, upload and download files.
+    pub compliance: ComplianceDomain,
     pub groups: GroupsDomain,
     pub landings: LandingsDomain,
     pub messages: MessagesDomain,
@@ -268,6 +313,7 @@ impl SignalHouseClient {
             billing: BillingDomain::new(Arc::clone(&http)),
             brands: BrandsDomain::new(Arc::clone(&http)),
             campaigns: CampaignsDomain::new(Arc::clone(&http)),
+            compliance: ComplianceDomain::new(Arc::clone(&http)),
             groups: GroupsDomain::new(Arc::clone(&http)),
             landings: LandingsDomain::new(Arc::clone(&http)),
             messages: MessagesDomain::new(Arc::clone(&http)),

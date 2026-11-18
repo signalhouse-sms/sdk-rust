@@ -66,17 +66,20 @@ impl ProgrammableVoiceProfilesDomain {
     ///
     /// `profile_data` keys: `name` (required); `subgroupIds` (required, string
     /// array with at least one entry); optional `region`, `routeAction`
-    /// (`"FORWARD"`, `"WEBRTC"`, `"SIP_TRUNK"`, `"SIP_PROFILE"`, or
-    /// `"CALL_CONTROL"`; defaults to `"FORWARD"`) — deliver to a PSTN number
+    /// (`"FORWARD"`, `"WEBRTC"`, `"SIP_TRUNK"`, `"SIP_PROFILE"`, `"CALL_CONTROL"`,
+    /// or `"CALL_FLOW"`; defaults to `"FORWARD"`) — deliver to a PSTN number
     /// (FORWARD), ring the profile's subgroup registered softphones (WEBRTC),
     /// send to a SIP trunk (SIP_TRUNK), ring a registered SIP endpoint
-    /// (SIP_PROFILE), or hand the call to your programmable call-control webhook
-    /// that returns SHML (CALL_CONTROL); `forwardToE164` (required when
-    /// `routeAction` is `"FORWARD"`), `routeSipTrunkId` (required when
+    /// (SIP_PROFILE), hand the call to your programmable call-control webhook
+    /// that returns SHML (CALL_CONTROL), or run one of your call flows
+    /// (CALL_FLOW); `forwardToE164` (required when `routeAction` is
+    /// `"FORWARD"`), `routeSipTrunkId` (required when
     /// `routeAction` is `"SIP_TRUNK"`), `routeSipProfileId` (required when
     /// `routeAction` is `"SIP_PROFILE"`), `webhookUrl` (inbound voice webhook /
     /// SHML program URL; required when `routeAction` is `"CALL_CONTROL"`),
-    /// `forwardAfterSeconds`, `recordingEnabled`, `enabled` (defaults to `true`).
+    /// `routeCallFlowId` (call flow in one of the profile's subgroups; required
+    /// when `routeAction` is `"CALL_FLOW"`), `forwardAfterSeconds`,
+    /// `recordingEnabled`, `enabled` (defaults to `true`).
     ///
     /// **POST** `/voice/api/v1/programmable-voice-profiles`
     pub async fn create(
@@ -98,10 +101,11 @@ impl ProgrammableVoiceProfilesDomain {
     ///
     /// `update_data` accepts the same keys as `create` — `name`, `subgroupIds`,
     /// `region`, `routeAction` (`"FORWARD"` | `"WEBRTC"` | `"SIP_TRUNK"` |
-    /// `"SIP_PROFILE"` | `"CALL_CONTROL"`), `forwardToE164`, `routeSipTrunkId`
+    /// `"SIP_PROFILE"` | `"CALL_CONTROL"` | `"CALL_FLOW"`), `forwardToE164`, `routeSipTrunkId`
     /// (required when `routeAction` is `"SIP_TRUNK"`), `routeSipProfileId`
     /// (required when `routeAction` is `"SIP_PROFILE"`), `webhookUrl` (required
-    /// when `routeAction` is `"CALL_CONTROL"`), `forwardAfterSeconds`,
+    /// when `routeAction` is `"CALL_CONTROL"`), `routeCallFlowId` (required when
+    /// `routeAction` is `"CALL_FLOW"`), `forwardAfterSeconds`,
     /// `recordingEnabled`, `enabled` — all optional.
     ///
     /// **PATCH** `/voice/api/v1/programmable-voice-profiles/:id`

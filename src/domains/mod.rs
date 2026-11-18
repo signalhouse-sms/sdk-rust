@@ -3,6 +3,7 @@ pub mod auth;
 pub mod billing;
 pub mod brands;
 pub mod campaigns;
+pub mod compliance;
 pub mod groups;
 pub mod landings;
 pub mod messages;

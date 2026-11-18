@@ -44,4 +44,4 @@ pub mod response;
 pub use client::{SignalHouseClient, SignalHouseConfig};
 pub use error::SignalHouseError;
 pub use request_options::RequestOptions;
-pub use response::SignalHouseResponse;
+pub use response::{SignalHouseFileResponse, SignalHouseResponse};

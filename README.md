@@ -81,6 +81,7 @@ again. Keys are scoped to the authenticated user and kept for 24 hours.
 | `billing` | Wallets, payment methods, funds, invoices, fees |
 | `brands` | 10DLC and toll-free brand registration and vetting |
 | `campaigns` | 10DLC campaign registration |
+| `compliance` | Compliance cases (`/compliance`): read cases, answer requirements, upload and download files. Only Signal House opens, works and closes a case |
 | `groups` | Group management |
 | `landings` | Brand/campaign landing pages |
 | `messages` | Send SMS/MMS, message logs, analytics |

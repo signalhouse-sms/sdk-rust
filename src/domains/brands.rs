@@ -472,6 +472,11 @@ impl BrandsDomain {
     /// - `appeal_categories`: list of appeal category strings.
     /// - `explanation`: explanation text for the appeal.
     /// - `file`: optional supporting document as `(bytes, filename)`.
+    ///
+    /// When TCR refuses the appeal itself (a 4xx, e.g. code 592 for a brand older than
+    /// 45 days), the error body is `{ "error": "TCR refused the appeal: <reason>",
+    /// "details": { "code", "message" } }` with TCR's own code and message. Retrying
+    /// unchanged is refused again.
     pub async fn submit_appeal(
         &self,
         brand_id: &str,

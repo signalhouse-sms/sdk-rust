@@ -71,6 +71,79 @@ impl SubgroupsDomain {
             .await
     }
 
+    /// Resolve the mapping between a GoHighLevel location and a Signal House subgroup, in either
+    /// direction. Provide exactly one of `ghl_location_id` or `subgroup_id`. `group_id` is optional -
+    /// customer roles default to their own accessible group(s) and are rejected if they name a group
+    /// they don't belong to; a `subgroup_id`/`ghl_location_id` that belongs to a different group than
+    /// the caller's returns a 404, identical to a nonexistent one.
+    ///
+    /// **GET** `/subgroup/ghl-location-lookup?...`
+    pub async fn lookup_ghl_location(
+        &self,
+        group_id: Option<&str>,
+        ghl_location_id: Option<&str>,
+        subgroup_id: Option<&str>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let qs = HttpClient::get_query_string(&[
+            ("groupId", group_id.map(String::from)),
+            ("ghlLocationId", ghl_location_id.map(String::from)),
+            ("subgroupId", subgroup_id.map(String::from)),
+        ]);
+        self.http
+            .request_json(
+                &format!("/subgroup/ghl-location-lookup{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Link (or, with `ghl_location_id: None`, unlink) a GoHighLevel location to a subgroup.
+    /// Requires `signalhouse_api` or `signalhouse_admin` role. At most one subgroup may hold a
+    /// given `ghl_location_id`; linking it here steals it from any other subgroup that currently
+    /// holds it. `ghl_location_name: None` leaves the subgroup's currently stored name untouched
+    /// (the field is omitted from the request entirely, never sent as an explicit null) - but only
+    /// when `ghl_location_id` is unchanged, otherwise it is cleared; it is always cleared when
+    /// unlinking. `claimed_at` (an ISO 8601 string) is required when `ghl_location_id` is `Some` -
+    /// when this link was locally claimed by the caller, used to detect and reject a delayed/
+    /// out-of-order push whose claim has since been superseded by a newer one recorded elsewhere;
+    /// ignored when unlinking.
+    ///
+    /// **PUT** `/subgroup/ghl-location-link`
+    pub async fn link_ghl_location(
+        &self,
+        subgroup_id: &str,
+        ghl_location_id: Option<&str>,
+        ghl_location_name: Option<&str>,
+        claimed_at: Option<&str>,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("subgroupId", Some(subgroup_id))])?;
+        if ghl_location_id.is_some() {
+            HttpClient::require(&[("claimedAt", claimed_at)])?;
+        }
+        let mut body = serde_json::json!({
+            "subgroupId": subgroup_id,
+            "ghlLocationId": ghl_location_id,
+        });
+        if let Some(name) = ghl_location_name {
+            body["ghlLocationName"] = Value::from(name);
+        }
+        if let Some(claimed_at) = claimed_at {
+            body["claimedAt"] = Value::from(claimed_at);
+        }
+        self.http
+            .request_json(
+                "/subgroup/ghl-location-link",
+                Method::PUT,
+                Some(&body),
+                options,
+            )
+            .await
+    }
+
     /// Create a new subgroup.
     /// `subgroup_data` may include optional `carrierIdFamily` and `carrierIdRegion` fields.
     /// Setting those fields requires signalhouse_api, signalhouse_admin, signalhouse_user,
