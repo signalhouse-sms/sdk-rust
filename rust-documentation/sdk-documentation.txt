@@ -502,6 +502,38 @@ GROUPS  (client.groups)
   remove_sso_domain(group_id, domain, options) -> Result<SignalHouseResponse>
     Remove a domain. Sends a DELETE to /group/sso/domains/:domain?groupId=...
 
+  Ontraport integration (roles: admin, developer, signalhouse_admin;
+  group_id required on every call)
+
+  get_ontraport_connection(group_id, options) -> Result<SignalHouseResponse>
+    Sends a GET to /group/ontraport?groupId=...
+    Returns: { connected, webhookUrl, enabled } (never the API Key or App ID).
+
+  connect_ontraport(group_id, api_key, app_id, options) -> Result<SignalHouseResponse>
+    Connect (or reconnect) the group's Ontraport account.
+    Sends a PUT to /group/ontraport with { groupId, apiKey, appId }.
+    api_key and app_id are verified with a read-only call to Ontraport
+    before anything is stored; a bad pair returns an error rather than
+    saving. Returns: { connected, webhookUrl, enabled }.
+
+  disconnect_ontraport(group_id, options) -> Result<SignalHouseResponse>
+    Disconnect (disable) the group's Ontraport account. Sends a DELETE to
+    /group/ontraport?groupId=... The webhook stops accepting deliveries
+    immediately; stored credentials and contact links are kept, so
+    reconnecting the same account resumes cleanly. The primary self-service
+    way to kill a leaked webhook URL. Returns: { connected, webhookUrl,
+    enabled }.
+
+  regenerate_ontraport_webhook_token(group_id, options)
+      -> Result<SignalHouseResponse>
+    Mint a fresh webhook token for an existing Ontraport connection,
+    immediately invalidating the old URL. Sends a PUT to
+    /group/ontraport/regenerate-token with { groupId }. A second
+    self-service way to kill a leaked webhook URL, for when the customer
+    wants to keep sending (unlike disconnect_ontraport) but needs a new URL
+    to paste into a rebuilt automation. Returns: { connected, webhookUrl,
+    enabled }.
+
 
 LANDINGS  (client.landings)
 --------------------------------------------------------------------------------
@@ -596,6 +628,7 @@ MESSAGES  (client.messages)
   carrier_id_lookup(phone_number, options)
     Look up the carrier for a phone number.
     Always performs a fresh lookup (not cached). Billed per request.
+    An Australian number on ACMA's list of numbers reserved for TV, film and creative works is refused with a 400 as an invalid number, without a lookup or a charge.
     Required: phone_number (10+ digits, no + prefix)
     Returns: { phoneNumber, carrier, carrierFamily, carrierRegion, ported, type, degradedConfidence, cost }
 

@@ -1213,7 +1213,9 @@ impl MessagesDomain {
     }
 
     /// Look up the carrier for a phone number. Always performs a fresh lookup
-    /// (not cached). Billed per request.
+    /// (not cached). Billed per request. An Australian number on ACMA's list of
+    /// numbers reserved for TV, film and creative works is refused with a 400 as
+    /// an invalid number, without a lookup or a charge.
     ///
     /// **POST** `/message/carrier-id`
     pub async fn carrier_id_lookup(

@@ -273,6 +273,102 @@ impl GroupsDomain {
             .await
     }
 
+    /// Read a group's Ontraport connection status: whether it's connected, and the webhook URL to
+    /// paste into an Ontraport automation's "Send to a Webhook" step. Never includes the API Key
+    /// or App ID.
+    ///
+    /// Returns `{ connected, webhookUrl, enabled }`.
+    ///
+    /// **GET** `/group/ontraport?groupId=...`
+    pub async fn get_ontraport_connection(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+        self.http
+            .request_json(
+                &format!("/group/ontraport{}", qs),
+                Method::GET,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Connect (or reconnect) a group's Ontraport account. `api_key` and `app_id` are verified
+    /// with a read-only call to Ontraport before anything is stored; a bad pair returns an error
+    /// rather than saving. Returns `{ connected, webhookUrl, enabled }`.
+    ///
+    /// Requires a Signal House Admin to have enabled `featureFlags.ontraportIntegration` for the
+    /// group first (opt-in, off by default) - otherwise this returns a validation error.
+    ///
+    /// **PUT** `/group/ontraport`
+    pub async fn connect_ontraport(
+        &self,
+        group_id: &str,
+        api_key: &str,
+        app_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[
+            ("groupId", Some(group_id)),
+            ("apiKey", Some(api_key)),
+            ("appId", Some(app_id)),
+        ])?;
+        let body = json!({ "groupId": group_id, "apiKey": api_key, "appId": app_id });
+        self.http
+            .request_json("/group/ontraport", Method::PUT, Some(&body), options)
+            .await
+    }
+
+    /// Disconnect (disable) a group's Ontraport account. The webhook stops accepting
+    /// deliveries immediately; stored credentials and contact links are kept, so reconnecting
+    /// the same account resumes cleanly. The primary self-service way to kill a leaked webhook
+    /// URL. Returns `{ connected, webhookUrl, enabled }`.
+    ///
+    /// **DELETE** `/group/ontraport?groupId=...`
+    pub async fn disconnect_ontraport(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let qs = HttpClient::get_query_string(&[("groupId", Some(group_id.to_string()))]);
+        self.http
+            .request_json(
+                &format!("/group/ontraport{}", qs),
+                Method::DELETE,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Mint a fresh webhook token for an existing Ontraport connection, immediately
+    /// invalidating the old URL. A second self-service way to kill a leaked webhook URL, for
+    /// when the customer wants to keep sending (unlike `disconnect_ontraport`) but needs a new
+    /// URL to paste into a rebuilt automation. Returns `{ connected, webhookUrl, enabled }`.
+    ///
+    /// **PUT** `/group/ontraport/regenerate-token`
+    pub async fn regenerate_ontraport_webhook_token(
+        &self,
+        group_id: &str,
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        HttpClient::require(&[("groupId", Some(group_id))])?;
+        let body = json!({ "groupId": group_id });
+        self.http
+            .request_json(
+                "/group/ontraport/regenerate-token",
+                Method::PUT,
+                Some(&body),
+                options,
+            )
+            .await
+    }
+
     /// Claim an email domain (e.g. "acme.com") for a group's SSO. The response (the SSO
     /// configuration) includes the DNS TXT record that verifies it.
     ///
