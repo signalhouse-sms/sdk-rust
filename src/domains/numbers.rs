@@ -130,7 +130,51 @@ impl NumbersDomain {
         released: Option<bool>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        let qs = HttpClient::get_query_string(&[
+        self.get_phone_numbers_with_search(
+            phone_number,
+            campaign_id,
+            registration_id,
+            brand_id,
+            subgroup_id,
+            group_id,
+            page,
+            limit,
+            current_toll_free_carrier,
+            released,
+            &[],
+            options,
+        )
+        .await
+    }
+
+    /// Get a list of owned phone numbers with optional filters, the current toll-free carrier and released filters,
+    /// and search terms.
+    ///
+    /// **GET** `/number?...`
+    ///
+    /// `current_toll_free_carrier` and `released`: as in `get_phone_numbers_with_released_filter`.
+    ///
+    /// `search`: search terms, each sent as its own `search` key (`?search=apex&search=displayName%3Adental`); every
+    /// term must match. At most 5 terms, each 3 to 100 characters. An empty slice sends no `search` key.
+    /// A term is free text, or `field:term` to search one field: `phoneNumber` or `friendlyName`. A phone-like term
+    /// matches the number's digits.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_phone_numbers_with_search(
+        &self,
+        phone_number: Option<&str>,
+        campaign_id: Option<&str>,
+        registration_id: Option<&str>,
+        brand_id: Option<&str>,
+        subgroup_id: Option<&str>,
+        group_id: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        current_toll_free_carrier: Option<bool>,
+        released: Option<bool>,
+        search: &[&str],
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let mut params = vec![
             ("phoneNumber", phone_number.map(String::from)),
             ("campaignId", campaign_id.map(String::from)),
             ("registrationId", registration_id.map(String::from)),
@@ -144,7 +188,9 @@ impl NumbersDomain {
                 current_toll_free_carrier.map(|c| c.to_string()),
             ),
             ("released", released.map(|r| r.to_string())),
-        ]);
+        ];
+        params.extend(search.iter().map(|term| ("search", Some(term.to_string()))));
+        let qs = HttpClient::get_query_string(&params);
         self.http
             .request_json(&format!("/number{}", qs), Method::GET, None, options)
             .await

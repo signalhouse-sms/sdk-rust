@@ -9,6 +9,8 @@ pub mod calls;
 pub mod global_voice_settings;
 pub mod number_routes;
 pub mod programmable_voice_profiles;
+pub mod push_credentials;
+pub mod push_devices;
 pub mod sip_profiles;
 pub mod sip_trunks;
 pub mod tokens;
@@ -20,6 +22,8 @@ pub use calls::{CallsDomain, ListCallsParams};
 pub use global_voice_settings::GlobalVoiceSettingsDomain;
 pub use number_routes::NumberRoutesDomain;
 pub use programmable_voice_profiles::ProgrammableVoiceProfilesDomain;
+pub use push_credentials::PushCredentialsDomain;
+pub use push_devices::PushDevicesDomain;
 pub use sip_profiles::SipProfilesDomain;
 pub use sip_trunks::SipTrunksDomain;
 pub use tokens::TokensDomain;
@@ -37,6 +41,8 @@ pub use tokens::TokensDomain;
 /// * `client.voice.analytics`                  — Aggregated call metrics (summary tiles + byDate/byNumber/byCarrier breakdowns).
 /// * `client.voice.global_voice_settings`      — Account-wide voice defaults (accepted regions, max spend/min, E911).
 /// * `client.voice.tokens`                     — Mint ephemeral SIP credentials for the browser voice SDK.
+/// * `client.voice.push_credentials`           — Mobile push: the Apple/Firebase credentials that wake your app for calls.
+/// * `client.voice.push_devices`               — Mobile push: register a device (called by the app with its voice token).
 pub struct VoiceDomain {
     pub sip_trunks: SipTrunksDomain,
     pub sip_profiles: SipProfilesDomain,
@@ -48,6 +54,8 @@ pub struct VoiceDomain {
     pub analytics: AnalyticsDomain,
     pub global_voice_settings: GlobalVoiceSettingsDomain,
     pub tokens: TokensDomain,
+    pub push_credentials: PushCredentialsDomain,
+    pub push_devices: PushDevicesDomain,
 }
 
 impl VoiceDomain {
@@ -62,7 +70,9 @@ impl VoiceDomain {
             call_logs: CallLogsDomain::new(Arc::clone(&http)),
             analytics: AnalyticsDomain::new(Arc::clone(&http)),
             global_voice_settings: GlobalVoiceSettingsDomain::new(Arc::clone(&http)),
-            tokens: TokensDomain::new(http),
+            tokens: TokensDomain::new(Arc::clone(&http)),
+            push_credentials: PushCredentialsDomain::new(Arc::clone(&http)),
+            push_devices: PushDevicesDomain::new(http),
         }
     }
 }

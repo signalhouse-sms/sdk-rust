@@ -35,7 +35,10 @@ impl TokensDomain {
     /// name; persisted as `requested_identity` so server-initiated
     /// `calls.create({ to_identity: ... })` can resolve it later; defaults to
     /// `"anonymous"`), `ttl` (seconds, clamped to the server's max; defaults
-    /// to `VOICE_TOKEN_DEFAULT_TTL_SEC`), `grants` (capability grants —
+    /// to `VOICE_TOKEN_DEFAULT_TTL_SEC`), `subgroupId` (the subgroup whose
+    /// inbound calls ring this identity; required to receive calls and to
+    /// register the device for mobile push via `client.voice.push_devices`),
+    /// `grants` (capability grants —
     /// `{ "voice": { "incoming": { "allow": bool }, "outgoing":
     /// { "allowedNumbers": [...] } } }`).
     ///

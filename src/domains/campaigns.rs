@@ -61,7 +61,44 @@ impl CampaignsDomain {
         registration_type: Option<&str>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        let qs = HttpClient::get_query_string(&[
+        self.get_campaigns_with_search(
+            id,
+            brand_id,
+            subgroup_id,
+            group_id,
+            page,
+            limit,
+            status,
+            registration_type,
+            &[],
+            options,
+        )
+        .await
+    }
+
+    /// Get a list of campaigns with optional filters and search terms.
+    ///
+    /// **GET** `/campaign?...`
+    ///
+    /// `search`: search terms, each sent as its own `search` key (`?search=apex&search=displayName%3Adental`); every
+    /// term must match. At most 5 terms, each 3 to 100 characters. An empty slice sends no `search` key.
+    /// Free text matches `campaignId` (also `brandId` on a staff read of all campaigns); `field:term` searches one
+    /// field: `campaignId` or `brandId`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_campaigns_with_search(
+        &self,
+        id: Option<&str>,
+        brand_id: Option<&str>,
+        subgroup_id: Option<&str>,
+        group_id: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        status: Option<&str>,
+        registration_type: Option<&str>,
+        search: &[&str],
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let mut params = vec![
             ("id", id.map(String::from)),
             ("brandId", brand_id.map(String::from)),
             ("subgroupId", subgroup_id.map(String::from)),
@@ -70,7 +107,9 @@ impl CampaignsDomain {
             ("limit", limit.map(|l| l.to_string())),
             ("status", status.map(String::from)),
             ("registrationType", registration_type.map(String::from)),
-        ]);
+        ];
+        params.extend(search.iter().map(|term| ("search", Some(term.to_string()))));
+        let qs = HttpClient::get_query_string(&params);
         self.http
             .request_json(&format!("/campaign{}", qs), Method::GET, None, options)
             .await

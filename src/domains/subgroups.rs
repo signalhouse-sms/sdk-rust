@@ -29,12 +29,35 @@ impl SubgroupsDomain {
         limit: Option<u32>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        let qs = HttpClient::get_query_string(&[
+        self.get_subgroups_with_search(id, group_id, page, limit, &[], options)
+            .await
+    }
+
+    /// Get a list of subgroups with optional filters and search terms.
+    ///
+    /// **GET** `/subgroup?...`
+    ///
+    /// `search`: search terms, each sent as its own `search` key (`?search=apex&search=displayName%3Adental`); every
+    /// term must match. At most 5 terms, each 3 to 100 characters. An empty slice sends no `search` key.
+    /// A term is free text, or `field:term` to search one field: `subgroupId`, `subgroupName` or
+    /// `subgroupCompanyName`.
+    pub async fn get_subgroups_with_search(
+        &self,
+        id: Option<&str>,
+        group_id: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        search: &[&str],
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let mut params = vec![
             ("id", id.map(String::from)),
             ("groupId", group_id.map(String::from)),
             ("page", page.map(|p| p.to_string())),
             ("limit", limit.map(|l| l.to_string())),
-        ]);
+        ];
+        params.extend(search.iter().map(|term| ("search", Some(term.to_string()))));
+        let qs = HttpClient::get_query_string(&params);
         self.http
             .request_json(&format!("/subgroup{}", qs), Method::GET, None, options)
             .await
@@ -145,7 +168,8 @@ impl SubgroupsDomain {
     }
 
     /// Create a new subgroup.
-    /// `subgroup_data` may include optional `carrierIdFamily` and `carrierIdRegion` fields.
+    /// `subgroup_data` may include `carrierIdFamily` and `carrierIdRegion`. Deprecated: accepted and stored,
+    /// with no effect on billing.
     /// Setting those fields requires signalhouse_api, signalhouse_admin, signalhouse_user,
     /// api, admin, developer, or billing role.
     ///
@@ -161,7 +185,8 @@ impl SubgroupsDomain {
     }
 
     /// Update an existing subgroup.
-    /// `update_data` may include optional `carrierIdFamily` and `carrierIdRegion` fields.
+    /// `update_data` may include `carrierIdFamily` and `carrierIdRegion`. Deprecated: accepted and stored,
+    /// with no effect on billing.
     /// Setting those fields requires signalhouse_api, signalhouse_admin, signalhouse_user,
     /// api, admin, developer, or billing role.
     /// `update_data` may also include optional `cnamAutoApply` (bool, turns caller name auto-apply

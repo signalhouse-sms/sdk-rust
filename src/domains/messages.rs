@@ -402,6 +402,8 @@ impl MessagesDomain {
     /// Inbound messages in the response also carry `sentimentScore` (-100..100, null when
     /// unscored), `sentimentLabel` ("positive", "neutral" or "negative", null when
     /// `sentimentScore` is null) and `sentimentScoredAt`. Outbound messages are never scored.
+    /// Inbound messages also carry `inReplyToMessageId`: the message the reply answers, absent when there is none. If that
+    /// message has a `parentMessageId`, it was an RCS fallback, and the parent is the RCS message you sent.
     ///
     /// **GET** `/message?...`
     pub async fn get_messages(
@@ -464,6 +466,8 @@ impl MessagesDomain {
     /// fallback leg also carry `costBreakdown`, `{ legs: [{ messageId, channel, billed, billingClass, segments, baseMicros, carrierMicros, rated }] }`,
     /// which is `null` when it cannot be computed. A settled RCS message also carries
     /// `carrierFeeMicros`: the carrier pass-through and media surcharge it was charged.
+    /// Inbound messages also carry `inReplyToMessageId`: the message the reply answers, absent when there is none. If that
+    /// message has a `parentMessageId`, it was an RCS fallback, and the parent is the RCS message you sent.
     ///
     /// **GET** `/message/:id`
     pub async fn get_message(
@@ -960,6 +964,8 @@ impl MessagesDomain {
     /// applies no link-shortening or text-spin and your pre-spun links/content are
     /// sent verbatim (bring-your-own spinner). Defaults to true. Pass `None` to omit
     /// the field entirely and preserve the server default.
+    ///
+    /// **Deprecated:** P2P messaging is retired and the API answers 410. This method will be removed in a future major release.
     #[allow(clippy::too_many_arguments)]
     pub async fn send_p2p(
         &self,
@@ -995,6 +1001,8 @@ impl MessagesDomain {
     /// Get a P2P batch by its ID.
     ///
     /// **GET** `/message/p2p/batches/:batchId`
+    ///
+    /// **Deprecated:** P2P messaging is retired and the API answers 410. This method will be removed in a future major release.
     pub async fn get_p2p_batch(
         &self,
         batch_id: &str,

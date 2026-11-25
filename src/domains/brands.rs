@@ -82,7 +82,47 @@ impl BrandsDomain {
         current_toll_free_carrier: Option<bool>,
         options: Option<&RequestOptions>,
     ) -> Result<SignalHouseResponse, SignalHouseError> {
-        let qs = HttpClient::get_query_string(&[
+        self.get_brands_with_search(
+            id,
+            subgroup_id,
+            group_id,
+            page,
+            limit,
+            status,
+            registration_type,
+            current_toll_free_carrier,
+            &[],
+            options,
+        )
+        .await
+    }
+
+    /// Get a list of brands with optional filters, the current toll-free carrier filter and search terms.
+    ///
+    /// **GET** `/brand?...`
+    ///
+    /// `current_toll_free_carrier`: as in `get_brands_on_current_toll_free_carrier`.
+    ///
+    /// `search`: search terms, each sent as its own `search` key (`?search=apex&search=displayName%3Adental`); every
+    /// term must match. At most 5 terms, each 3 to 100 characters. An empty slice sends no `search` key.
+    /// Free text matches `brandId`, `displayName` and `companyName` (all eight fields below on a staff read of all
+    /// brands); `field:term` searches one field: `brandId`, `displayName`, `companyName`, `ein`, `email`, `groupId`,
+    /// `subgroupId` or `referenceId`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_brands_with_search(
+        &self,
+        id: Option<&str>,
+        subgroup_id: Option<&str>,
+        group_id: Option<&str>,
+        page: Option<u32>,
+        limit: Option<u32>,
+        status: Option<&str>,
+        registration_type: Option<&str>,
+        current_toll_free_carrier: Option<bool>,
+        search: &[&str],
+        options: Option<&RequestOptions>,
+    ) -> Result<SignalHouseResponse, SignalHouseError> {
+        let mut params = vec![
             ("id", id.map(String::from)),
             ("subgroupId", subgroup_id.map(String::from)),
             ("groupId", group_id.map(String::from)),
@@ -94,7 +134,9 @@ impl BrandsDomain {
                 "currentTollFreeCarrier",
                 current_toll_free_carrier.map(|c| c.to_string()),
             ),
-        ]);
+        ];
+        params.extend(search.iter().map(|term| ("search", Some(term.to_string()))));
+        let qs = HttpClient::get_query_string(&params);
         self.http
             .request_json(&format!("/brand{}", qs), Method::GET, None, options)
             .await

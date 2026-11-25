@@ -269,6 +269,19 @@ BRANDS  (client.brands)
     returns only toll-free brands that a new toll-free campaign in that group
     can use (those on the group's current toll-free carrier).
 
+  get_brands_with_search(id, subgroup_id, group_id, page, limit, status,
+      registration_type, current_toll_free_carrier, search: &[&str],
+      options) -> Result<SignalHouseResponse>
+    List brands with filters (GET /brand). Use it instead of
+    get_brands_on_current_toll_free_carrier to also send search terms.
+    search: search terms, each sent as its own search key
+    (?search=apex&search=displayName%3Adental); every term must match. At most
+    5 terms, each 3 to 100 characters. An empty slice sends no search key.
+    Free text matches brandId, displayName and companyName (all eight fields
+    below on a staff read of all brands); field:term searches one field:
+    brandId, displayName, companyName, ein, email, groupId, subgroupId or
+    referenceId.
+
   create_brand(brand_data, options) -> Result<SignalHouseResponse>
     Create a new 10DLC brand.
 
@@ -386,6 +399,17 @@ CAMPAIGNS  (client.campaigns)
   get_campaigns(GetCampaignsParams { id, brand_id, subgroup_id, group_id,
       page, limit, status }, options) -> Result<SignalHouseResponse>
     List campaigns with filters.
+
+  get_campaigns_with_search(id, brand_id, subgroup_id, group_id, page, limit,
+      status, registration_type, search: &[&str],
+      options) -> Result<SignalHouseResponse>
+    List campaigns with filters (GET /campaign). Use it instead of
+    get_campaigns to also send search terms.
+    search: search terms, each sent as its own search key
+    (?search=apex&search=displayName%3Adental); every term must match. At most
+    5 terms, each 3 to 100 characters. An empty slice sends no search key.
+    Free text matches campaignId (also brandId on a staff read of all
+    campaigns); field:term searches one field: campaignId or brandId.
 
   create_campaign(campaign_data, options) -> Result<SignalHouseResponse>
     Create a new 10DLC campaign.
@@ -577,6 +601,10 @@ MESSAGES  (client.messages)
     carrierMicros, rated }] }, which is null when it cannot be computed.
     A settled RCS message also carries carrierFeeMicros, the carrier
     pass-through and media surcharge it was charged.
+    Inbound messages also carry inReplyToMessageId: the message the reply
+    answers, absent when there is none. If that message has a
+    parentMessageId, it was an RCS fallback, and the parent is the RCS
+    message you sent.
 
   get_message_interactions(id, options) -> Result<SignalHouseResponse>
     GET /message/:id/interactions. The taps on one RCS message, oldest first. Required: id
@@ -682,6 +710,23 @@ NUMBERS  (client.numbers)
     numbers (status RELEASED) instead of its active ones. current_toll_free_carrier
     and registration_id behave as above.
 
+  get_phone_numbers_with_search(&self,
+      phone_number: Option<&str>, campaign_id: Option<&str>,
+      registration_id: Option<&str>, brand_id: Option<&str>,
+      subgroup_id: Option<&str>, group_id: Option<&str>,
+      page: Option<u32>, limit: Option<u32>,
+      current_toll_free_carrier: Option<bool>, released: Option<bool>,
+      search: &[&str],
+      options: Option<&RequestOptions>) -> Result<SignalHouseResponse>
+    List your phone numbers with filters (GET /number). Use it instead of
+    get_phone_numbers_with_released_filter to also send search terms; the
+    other filters behave as above.
+    search: search terms, each sent as its own search key
+    (?search=apex&search=displayName%3Adental); every term must match. At most
+    5 terms, each 3 to 100 characters. An empty slice sends no search key.
+    A term is free text, or field:term to search one field: phoneNumber or
+    friendlyName. A phone-like term matches the number's digits.
+
   get_number_health(phone_number, options) -> Result<SignalHouseResponse>
     Get the health score, the same one the portal shows, (1–10) for an owned phone number.
     Returns sevenDay and thirtyDay breakdowns matching the portal.
@@ -780,18 +825,28 @@ SUBGROUPS  (client.subgroups)
       options) -> Result<SignalHouseResponse>
     List subgroups with filters.
 
+  get_subgroups_with_search(id, group_id, page, limit, search: &[&str],
+      options) -> Result<SignalHouseResponse>
+    List subgroups with filters (GET /subgroup). Use it instead of
+    get_subgroups to also send search terms.
+    search: search terms, each sent as its own search key
+    (?search=apex&search=displayName%3Adental); every term must match. At most
+    5 terms, each 3 to 100 characters. An empty slice sends no search key.
+    A term is free text, or field:term to search one field: subgroupId,
+    subgroupName or subgroupCompanyName.
+
   create_subgroup(subgroup_data,
       options) -> Result<SignalHouseResponse>
     Create a new subgroup.
-    subgroup_data may include optional carrierIdFamily and carrierIdRegion.
-    Setting carrierIdFamily or carrierIdRegion requires signalhouse_api,
+    subgroup_data may include carrierIdFamily and carrierIdRegion. Deprecated: accepted and
+    stored, with no effect on billing. Setting them requires signalhouse_api,
     signalhouse_admin, signalhouse_user, api, admin, developer, or billing role.
 
   update_subgroup(id, update_data,
       options) -> Result<SignalHouseResponse>
     Update subgroup details.
-    update_data may include optional carrierIdFamily and carrierIdRegion.
-    Setting carrierIdFamily or carrierIdRegion requires signalhouse_api,
+    update_data may include carrierIdFamily and carrierIdRegion. Deprecated: accepted and
+    stored, with no effect on billing. Setting them requires signalhouse_api,
     signalhouse_admin, signalhouse_user, api, admin, developer, or billing role.
     update_data may also include optional cnamAutoApply (bool) and cnamBrandId
     (string, or null to clear).
